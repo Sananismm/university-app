@@ -37,6 +37,15 @@ interface MessMenuItem {
   time: string
 }
 
+const getISOWeek = (date: Date) => {
+  const tmp = new Date(date.getTime())
+  tmp.setHours(0, 0, 0, 0)
+  // Thursday in current week decides the year.
+  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7))
+  const week1 = new Date(tmp.getFullYear(), 0, 4)
+  return 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)
+}
+
 export default function UniApp() {
   const [isOnboarded, setIsOnboarded] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile>({
@@ -48,8 +57,9 @@ export default function UniApp() {
     section: "",
   })
 
-  const [selectedDay, setSelectedDay] = useState("Monday")
+  const [selectedDay, setSelectedDay] = useState(new Date().toLocaleDateString("en-US", { weekday: "long" }))
   const [selectedMessDay, setSelectedMessDay] = useState(new Date().toLocaleDateString("en-US", { weekday: "long" }))
+  const [messAnchorWeek, setMessAnchorWeek] = useState<number | null>(null)
 
   const scheduleData = {
     "Electrical Engineering": {
@@ -387,12 +397,475 @@ export default function UniApp() {
           day: "Friday",
         },
       ],
+      C: [
+        // Monday
+        {
+          id: "c1",
+          subject: "Probability and Statistics",
+          time: "09:00 - 09:50",
+          location: "CR-12 (UG Block)",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "c2",
+          subject: "Probability and Statistics",
+          time: "10:00 - 11:50",
+          location: "CR-12 (UG Block)",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "c3",
+          subject: "Makeup Slot",
+          time: "11:00 - 11:50",
+          location: "CR 12",
+          type: "lecture",
+          day: "Monday",
+        },
+
+        {
+          id: "c4",
+          subject: "Electrical Machines",
+          time: "12:00 - 12:50",
+          location: "CR 13",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "c5",
+          subject: "Signals and Systems",
+          time: "2:00 - 4:50",
+          location: "DSP & Comm Lab - UG Block",
+          type: "Lab",
+          day: "Monday",
+        },
+        //Tuesday
+        {
+          id: "c6",
+          subject: "ELectrical Machines",
+          time: "09:00 - 09:50",
+          location: "CR 01",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "c7",
+          subject: "Instrumentations and Measurements",
+          time: "10:00 - 12:50",
+          location: "CR 12",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "c8",
+          subject: "Signals and Systems",
+          time: "14:00 - 14:50",
+          location: "CR-13 (UG Block)",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "c9",
+          subject: "Signals and Systems",
+          time: "15:00 - 15:50",
+          location: "CR-13",
+          type: "lecture",
+          day: "Tuesday",
+        },
+
+        //Wednesday
+        {
+          id: "c10",
+          subject: "Signals and Systems",
+          time: "10:00 - 10:50",
+          location: "CR-13",
+          type: "Lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "c11",
+          subject: "Instrumentations and Measurements",
+          time: "11:00 - 11:50",
+          location: "CR-13",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "c12",
+          subject: "Probability and Statistics",
+          time: "12:00 - 12:50",
+          location: "CR-13",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "c13",
+          subject: "Electronic Circuit Design",
+          time: "14:00 - 16:50",
+          location: "Advanced Electronics Lab (IAEC)",
+          type: "lab",
+          day: "Wednesday",
+        },
+
+        //Thursday
+        {
+          id: "c14",
+          subject: "Electrical Machines",
+          time: "10:00 - 10:50",
+          location: "CR 13",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "c15",
+          subject: "Electronic Circuit Design",
+          time: "11:00 - 11:50",
+          location: "CR 13",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "c16",
+          subject: "Makeup Slot",
+          time: "12:00 - 12:50",
+          location: "CR 13",
+          type: "NA",
+          day: "Thursday",
+        },
+        {
+          id: "c17",
+          subject: "Electrical Machines",
+          time: "14:00 - 16:50",
+          location: "EMS Lab-UG Block",
+          type: "lab",
+          day: "Thursday",
+        },
+        // Friday
+        {
+          id: "c18",
+          subject: "Instrumentaions and Measurements",
+          time: "09:00 - 10:50",
+          location: "CR-13",
+          type: "lecture",
+          day: "Friday",
+        },
+        {
+          id: "c19",
+          subject: "Electronic Circuits Design",
+          time: "11:00 - 12:50",
+          location: "CR 13",
+          type: "lecture",
+          day: "Friday",
+        },
+      ],
     },
+    "Computer Science": {
+      A: [],
+      B: [
+        // Monday
+        {
+          id: "cs-b1",
+          subject: "Makeup Slot / Library Period",
+          time: "09:00 - 09:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "cs-b2",
+          subject: "Data Visualization",
+          time: "10:00 - 12:50",
+          location: "Computing Lab-05 UG Block",
+          type: "lab",
+          day: "Monday",
+        },
+        {
+          id: "cs-b3",
+          subject: "Introduction to Management",
+          time: "14:00 - 15:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "cs-b4",
+          subject: "Makeup Slot / Library Period",
+          time: "16:00 - 16:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Monday",
+        },
+        // Tuesday
+        {
+          id: "cs-b5",
+          subject: "Operating Systems",
+          time: "09:00 - 10:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "cs-b6",
+          subject: "Data Visualization",
+          time: "11:00 - 12:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "cs-b7",
+          subject: "HCI & Computer Graphics",
+          time: "14:00 - 16:50",
+          location: "Computing Lab-05 UG Block",
+          type: "lab",
+          day: "Tuesday",
+        },
+        // Wednesday
+        {
+          id: "cs-b8",
+          subject: "Makeup Slot / Library Period",
+          time: "09:00 - 09:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "cs-b9",
+          subject: "Computer Architecture",
+          time: "11:00 - 12:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "cs-b10",
+          subject: "Operating Systems",
+          time: "14:00 - 16:50",
+          location: "Computing Lab-05 UG Block",
+          type: "lab",
+          day: "Wednesday",
+        },
+        // Thursday
+        {
+          id: "cs-b11",
+          subject: "Makeup Slot / Library Period",
+          time: "09:00 - 09:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "cs-b12",
+          subject: "Machine Learning",
+          time: "10:00 - 12:50",
+          location: "Computing Lab-05 UG Block",
+          type: "lab",
+          day: "Thursday",
+        },
+        {
+          id: "cs-b13",
+          subject: "Machine Learning",
+          time: "14:00 - 15:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "cs-b14",
+          subject: "Makeup Slot / Library Period",
+          time: "16:00 - 16:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Thursday",
+        },
+        // Friday
+        {
+          id: "cs-b15",
+          subject: "Makeup Slot / Library Period",
+          time: "09:00 - 09:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Friday",
+        },
+        {
+          id: "cs-b16",
+          subject: "Computer Architecture",
+          time: "10:00 - 12:50",
+          location: "Computing Lab-05 UG Block",
+          type: "lab",
+          day: "Friday",
+        },
+        {
+          id: "cs-b17",
+          subject: "HCI & Computer Graphics",
+          time: "14:00 - 15:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Friday",
+        },
+        {
+          id: "cs-b18",
+          subject: "Makeup Slot / Library Period",
+          time: "16:00 - 16:50",
+          location: "TBD",
+          type: "lecture",
+          day: "Friday",
+        },
+      ],
+      C: [],
+      D: [],
+      E: [],
+    },
+  }
+
+  const scheduleDataNoSection: Record<string, ScheduleItem[]> = {
+    "Mass Communication": [
+      // Monday
+      {
+        id: "mc-1",
+        subject: "Theories of Mass Communication",
+        time: "14:00 - 15:15",
+        location: "CR-06",
+        type: "lecture",
+        day: "Monday",
+      },
+      {
+        id: "mc-2",
+        subject: "Theories of Mass Communication",
+        time: "15:25 - 16:40",
+        location: "CR-06",
+        type: "lecture",
+        day: "Monday",
+      },
+      // Tuesday
+      {
+        id: "mc-3",
+        subject: "Radio Production",
+        time: "10:25 - 11:40",
+        location: "CR-01",
+        type: "lecture",
+        day: "Tuesday",
+      },
+      {
+        id: "mc-4",
+        subject: "Radio Production",
+        time: "11:50 - 13:05",
+        location: "CR-10",
+        type: "lecture",
+        day: "Tuesday",
+      },
+      {
+        id: "mc-5",
+        subject: "Introduction to Public Administration",
+        time: "14:00 - 15:15",
+        location: "CR-04",
+        type: "lecture",
+        day: "Tuesday",
+      },
+      {
+        id: "mc-6",
+        subject: "Introduction to Public Administration",
+        time: "15:25 - 16:40",
+        location: "CR-04",
+        type: "lecture",
+        day: "Tuesday",
+      },
+      // Wednesday
+      {
+        id: "mc-7",
+        subject: "Introduction to Visual Storytelling",
+        time: "10:25 - 11:40",
+        location: "TV Studio - Lab",
+        type: "lab",
+        day: "Wednesday",
+      },
+      {
+        id: "mc-8",
+        subject: "Introduction to Visual Storytelling",
+        time: "11:50 - 13:05",
+        location: "TV Studio - Lab",
+        type: "lab",
+        day: "Wednesday",
+      },
+      // Thursday
+      {
+        id: "mc-9",
+        subject: "English Literature",
+        time: "14:00 - 15:15",
+        location: "CR-09",
+        type: "lecture",
+        day: "Thursday",
+      },
+      {
+        id: "mc-10",
+        subject: "English Literature",
+        time: "15:25 - 16:40",
+        location: "CR-09",
+        type: "lecture",
+        day: "Thursday",
+      },
+      // Friday
+      {
+        id: "mc-11",
+        subject: "Online Journalism",
+        time: "10:25 - 11:40",
+        location: "CR-10",
+        type: "lecture",
+        day: "Friday",
+      },
+      {
+        id: "mc-12",
+        subject: "Online Journalism",
+        time: "11:50 - 13:05",
+        location: "CR-10",
+        type: "lecture",
+        day: "Friday",
+      },
+    ],
   }
 
   const [schedule] = useState<ScheduleItem[]>([])
 
-  const [messMenu] = useState<Record<string, MessMenuItem[]>>({
+  const messMenuWeekA: Record<string, MessMenuItem[]> = {
+    Monday: [
+      { id: "wA-mon-b", meal: "breakfast", items: ["Omelette", "Paratha"], time: "07:30 - 09:30" },
+      { id: "wA-mon-l", meal: "lunch", items: ["Aloo Baingan"], time: "12:00 - 14:30" },
+      { id: "wA-mon-d", meal: "dinner", items: ["Channa Pulao", "Raita"], time: "19:00 - 21:30" },
+    ],
+    Tuesday: [
+      { id: "wA-tue-b", meal: "breakfast", items: ["Kulcha Channa"], time: "07:30 - 09:30" },
+      { id: "wA-tue-l", meal: "lunch", items: ["Daal Mash", "Salad"], time: "12:00 - 14:30" },
+      { id: "wA-tue-d", meal: "dinner", items: ["Murgh Channay"], time: "19:00 - 21:30" },
+    ],
+    Wednesday: [
+      { id: "wA-wed-b", meal: "breakfast", items: ["Half & Full Fried Egg"], time: "07:30 - 09:30" },
+      { id: "wA-wed-l", meal: "lunch", items: ["Kari Pakora", "Naan"], time: "12:00 - 14:30" },
+      { id: "wA-wed-d", meal: "dinner", items: ["Chicken Achari", "Zarda"], time: "19:00 - 21:30" },
+    ],
+    Thursday: [
+      { id: "wA-thu-b", meal: "breakfast", items: ["Egg Tomato Onion"], time: "07:30 - 09:30" },
+      { id: "wA-thu-l", meal: "lunch", items: ["Daal Kaddu"], time: "12:00 - 14:30" },
+      { id: "wA-thu-d", meal: "dinner", items: ["Biryani", "Cold Drinks"], time: "19:00 - 21:30" },
+    ],
+    Friday: [
+      { id: "wA-fri-b", meal: "breakfast", items: ["French Toast"], time: "07:30 - 09:30" },
+      { id: "wA-fri-l", meal: "lunch", items: ["Daal Chawal (Black)"], time: "12:00 - 14:30" },
+      { id: "wA-fri-d", meal: "dinner", items: ["Aloo Beef Keema", "Chapati"], time: "19:00 - 21:30" },
+    ],
+    Saturday: [
+      { id: "wA-sat-b", meal: "breakfast", items: ["Aloo Paratha"], time: "07:30 - 09:30" },
+      { id: "wA-sat-l", meal: "lunch", items: ["Lobia"], time: "12:00 - 14:30" },
+      { id: "wA-sat-d", meal: "dinner", items: ["Chicken Pulao", "Raita"], time: "19:00 - 21:30" },
+    ],
+    Sunday: [
+      { id: "wA-sun-b", meal: "breakfast", items: ["Halwa Puri", "Channa"], time: "07:30 - 09:30" },
+      { id: "wA-sun-l", meal: "lunch", items: ["Bhindi", "Salad"], time: "12:00 - 14:30" },
+      { id: "wA-sun-d", meal: "dinner", items: ["Chicken Chowmein"], time: "19:00 - 21:30" },
+    ],
+  }
+
+  const messMenuWeekB: Record<string, MessMenuItem[]> = {
     Monday: [
       {
         id: "mon-1",
@@ -533,7 +1006,14 @@ export default function UniApp() {
         time: "19:00 - 21:30",
       },
     ],
-  })
+  }
+
+  const messMenu: Record<string, MessMenuItem[]> =
+    messAnchorWeek !== null
+      ? (getISOWeek(new Date()) - messAnchorWeek) % 2 === 0
+        ? messMenuWeekA
+        : messMenuWeekB
+      : messMenuWeekA
 
   useEffect(() => {
     const savedProfile = localStorage.getItem("uniapp-profile")
@@ -589,17 +1069,39 @@ export default function UniApp() {
   }
 
   const getScheduleForDay = (day: string) => {
-    if (userProfile.major === "Electrical Engineering" && userProfile.section) {
-      const sectionSchedule =
-        scheduleData["Electrical Engineering"][
-          userProfile.section as keyof (typeof scheduleData)["Electrical Engineering"]
-        ]
-      return sectionSchedule?.filter((item) => item.day === day) || []
+    if (
+      (userProfile.major === "Electrical Engineering" || userProfile.major === "Computer Science") &&
+      userProfile.section
+    ) {
+      const majorSchedule = scheduleData[userProfile.major as keyof typeof scheduleData]
+      if (majorSchedule) {
+        const sectionSchedule = majorSchedule[userProfile.section as keyof typeof majorSchedule]
+        return sectionSchedule?.filter((item) => item.day === day) || []
+      }
     }
+
+    // majors without sections (e.g., S3H Mass Communication)
+    const simpleMajorSchedule = scheduleDataNoSection[userProfile.major as keyof typeof scheduleDataNoSection]
+    if (simpleMajorSchedule) {
+      return simpleMajorSchedule.filter((item) => item.day === day)
+    }
+
     return schedule.filter((item) => item.day === day)
   }
 
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+  useEffect(() => {
+    const currentIsoWeek = getISOWeek(new Date())
+    const saved = localStorage.getItem("mess-menu-anchor-week")
+    if (!saved) {
+      localStorage.setItem("mess-menu-anchor-week", String(currentIsoWeek))
+      setMessAnchorWeek(currentIsoWeek)
+    } else {
+      const parsed = Number.parseInt(saved, 10)
+      setMessAnchorWeek(Number.isNaN(parsed) ? currentIsoWeek : parsed)
+    }
+  }, [])
 
   if (!isOnboarded) {
     return (
@@ -658,6 +1160,18 @@ export default function UniApp() {
                       <SelectItem value="Data Science">Data Science</SelectItem>
                     </SelectContent>
                   </Select>
+                ) : userProfile.school === "S3H" ? (
+                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your major" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Mass Communication">Mass Communication</SelectItem>
+                      <SelectItem value="Economics">Economics</SelectItem>
+                      <SelectItem value="Public Ad">Public Ad</SelectItem>
+                      <SelectItem value="Psychology">Psychology</SelectItem>
+                    </SelectContent>
+                  </Select>
                 ) : (
                   <Input
                     id="major"
@@ -669,7 +1183,7 @@ export default function UniApp() {
                 )}
               </div>
 
-              {userProfile.major === "Electrical Engineering" && (
+              {(userProfile.major === "Electrical Engineering" || userProfile.major === "Computer Science") && (
                 <div className="space-y-2">
                   <Label htmlFor="section">Section</Label>
                   <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, section: value }))}>
@@ -681,6 +1195,7 @@ export default function UniApp() {
                       <SelectItem value="B">B</SelectItem>
                       <SelectItem value="C">C</SelectItem>
                       <SelectItem value="D">D</SelectItem>
+                      {userProfile.major === "Computer Science" && <SelectItem value="E">E</SelectItem>}
                     </SelectContent>
                   </Select>
                 </div>
