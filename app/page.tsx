@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, Clock, MapPin, Utensils, GraduationCap, Home } from "lucide-react"
+import { Calendar, Clock, MapPin, Utensils, GraduationCap } from "lucide-react"
 
 interface UserProfile {
   batchNumber: string
@@ -26,7 +26,7 @@ interface ScheduleItem {
   subject: string
   time: string
   location: string
-  type: "lecture" | "lab"
+  type: "lecture" | "lab" | "tutorial" | "NA"
   day: string
 }
 
@@ -93,7 +93,7 @@ export default function UniApp() {
         {
           id: "4",
           subject: "Probability and Statistics",
-          time: "13:00 - 13:50",
+          time: "14:00 - 14:50",
           location: "CR-12",
           type: "lecture",
           day: "Tuesday",
@@ -101,7 +101,7 @@ export default function UniApp() {
         {
           id: "5",
           subject: "Instrumentation and Measurements",
-          time: "14:00 - 14:50",
+          time: "15:00 - 15:50",
           location: "CR-12",
           type: "lecture",
           day: "Tuesday",
@@ -109,7 +109,7 @@ export default function UniApp() {
         {
           id: "6",
           subject: "Instrumentation and Measurements",
-          time: "15:00 - 16:50",
+          time: "16:00 - 16:50",
           location: "CR-12",
           type: "lecture",
           day: "Tuesday",
@@ -167,7 +167,7 @@ export default function UniApp() {
         {
           id: "13",
           subject: "Electronic Circuit Design",
-          time: "13:00 - 13:50",
+          time: "14:00 - 14:50",
           location: "CR-12",
           type: "lecture",
           day: "Thursday",
@@ -175,7 +175,7 @@ export default function UniApp() {
         {
           id: "14",
           subject: "Probability and Statistics",
-          time: "14:00 - 14:50",
+          time: "15:00 - 15:50",
           location: "CR-12",
           type: "lecture",
           day: "Thursday",
@@ -183,7 +183,7 @@ export default function UniApp() {
         {
           id: "15",
           subject: "Instrumentation and Measurements",
-          time: "15:00 - 16:50",
+          time: "16:00 - 16:50",
           location: "CR-12",
           type: "lecture",
           day: "Thursday",
@@ -556,6 +556,153 @@ export default function UniApp() {
           time: "11:00 - 12:50",
           location: "CR 13",
           type: "lecture",
+          day: "Friday",
+        },
+      ],
+      D: [
+        // Monday
+        {
+          id: "d1",
+          subject: "Signals and Systems (Lab)",
+          time: "09:00 - 11:50",
+          location: "DSP & Comm Lab-UG Block",
+          type: "lab",
+          day: "Monday",
+        },
+        {
+          id: "d2",
+          subject: "Electrical Machines",
+          time: "12:00 - 12:50",
+          location: "CR-12-UG Block",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "d3",
+          subject: "Electronic Circuit Design",
+          time: "14:00 - 15:50",
+          location: "CR-13",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "d4",
+          subject: "Makeup Slot / Library Period",
+          time: "16:00 - 16:50",
+          location: "CR-13",
+          type: "NA",
+          day: "Monday",
+        },
+
+        // Tuesday
+        {
+          id: "d5",
+          subject: "Probability and Statistics",
+          time: "09:00 - 11:50",
+          location: "CR-13",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "d6",
+          subject: "Electronic Circuit Design",
+          time: "12:00 - 12:50",
+          location: "CR-13",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "d7",
+          subject: "Instrumentation and Measurements (Lab)",
+          time: "14:00 - 16:50",
+          location: "Control System Lab-UG Block",
+          type: "lab",
+          day: "Tuesday",
+        },
+
+        // Wednesday
+        {
+          id: "d8",
+          subject: "Probability and Statistics",
+          time: "09:00 - 09:50",
+          location: "CR-13",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "d9",
+          subject: "Electronic Circuit Design (Lab)",
+          time: "10:00 - 12:50",
+          location: "Advanced Electronics Lab-IAEC",
+          type: "lab",
+          day: "Wednesday",
+        },
+        {
+          id: "d10",
+          subject: "Instrumentation and Measurements",
+          time: "14:00 - 15:50",
+          location: "CR-08-UG Block",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "d11",
+          subject: "Makeup Slot / Library Period",
+          time: "16:00 - 16:50",
+          location: "CR-13",
+          type: "NA",
+          day: "Wednesday",
+        },
+
+        // Thursday
+        {
+          id: "d12",
+          subject: "Electrical Machines (Lab)",
+          time: "10:00 - 12:50",
+          location: "EMS Lab-UG Block",
+          type: "lab",
+          day: "Thursday",
+        },
+        {
+          id: "d13",
+          subject: "Electrical Machines",
+          time: "14:00 - 15:50",
+          location: "CR-13",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "d14",
+          subject: "Makeup Slot / Library Period",
+          time: "16:00 - 16:50",
+          location: "CR-13",
+          type: "NA",
+          day: "Thursday",
+        },
+
+        // Friday
+        {
+          id: "d15",
+          subject: "Makeup Slot / Library Period",
+          time: "09:00 - 12:50",
+          location: "CR-13",
+          type: "NA",
+          day: "Friday",
+        },
+        {
+          id: "d16",
+          subject: "Signals and Systems",
+          time: "14:00 - 15:50",
+          location: "CR-13",
+          type: "lecture",
+          day: "Friday",
+        },
+        {
+          id: "d17",
+          subject: "Makeup Slot / Library Period",
+          time: "16:00 - 16:50",
+          location: "CR-13",
+          type: "NA",
           day: "Friday",
         },
       ],
@@ -1042,7 +1189,7 @@ export default function UniApp() {
     })
   }
 
-  const getTypeColor = (type: string) => {
+  const getTypeColor = (type: ScheduleItem["type"]) => {
     switch (type) {
       case "lecture":
         return "bg-primary text-primary-foreground"
@@ -1050,6 +1197,8 @@ export default function UniApp() {
         return "bg-secondary text-secondary-foreground"
       case "tutorial":
         return "bg-accent text-accent-foreground"
+      case "NA":
+        return "bg-destructive text-destructive-foreground"
       default:
         return "bg-muted text-muted-foreground"
     }
@@ -1264,7 +1413,7 @@ export default function UniApp() {
           <div className="flex items-center gap-2">
             {userProfile.hostelResident && (
               <Badge variant="secondary" className="gap-1">
-                <Home className="w-3 h-3" />
+                <MapPin className="w-3 h-3" />
                 Hostel
               </Badge>
             )}

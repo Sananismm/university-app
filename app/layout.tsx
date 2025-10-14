@@ -26,6 +26,13 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   themeColor: "#1f2937",
   viewport: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.jpg", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/icons/apple-touch-icon.jpg",
+  },
 }
 
 export default function RootLayout({
