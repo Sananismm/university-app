@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -10,7 +10,20 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, Clock, MapPin, Utensils, GraduationCap } from "lucide-react"
+import { Calendar, Clock, MapPin, Utensils, GraduationCap, BookOpen } from "lucide-react"
+
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+const BATCH_OPTIONS = ["2022", "2023", "2024", "2025"]
+const SCHOOL_OPTIONS = ["SEECS", "SMME", "S3H", "NBS", "NSHS", "IGIS", "ASAB"]
+const SEMESTER_OPTIONS = Array.from({ length: 8 }, (_, i) => String(i + 1))
+
+const getISOWeek = (date: Date) => {
+  const tmp = new Date(date.getTime())
+  tmp.setHours(0, 0, 0, 0)
+  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7))
+  const week1 = new Date(tmp.getFullYear(), 0, 4)
+  return 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)
+}
 
 interface UserProfile {
   batchNumber: string
@@ -37,13 +50,13 @@ interface MessMenuItem {
   time: string
 }
 
-const getISOWeek = (date: Date) => {
-  const tmp = new Date(date.getTime())
-  tmp.setHours(0, 0, 0, 0)
-  // Thursday in current week decides the year.
-  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7))
-  const week1 = new Date(tmp.getFullYear(), 0, 4)
-  return 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)
+interface ExamItem {
+  date: string
+  time: string
+  subject: string
+  major: string
+  batch: string
+  venue?: string
 }
 
 export default function UniApp() {
@@ -61,7 +74,462 @@ export default function UniApp() {
   const [selectedMessDay, setSelectedMessDay] = useState(new Date().toLocaleDateString("en-US", { weekday: "long" }))
   const [messAnchorWeek, setMessAnchorWeek] = useState<number | null>(null)
 
+  const [examMajor, setExamMajor] = useState("")
+  const [examData, setExamData] = useState<ExamItem[]>([])
+  const [examMajors, setExamMajors] = useState<string[]>([])
+  const [loadingExams, setLoadingExams] = useState(false)
+
   const scheduleData = {
+    "Mechanical Engineering": {
+      A: [
+        // Monday
+        {
+          id: "ME-A1",
+          subject: "Ideology and Constitution of Pakistan (HU-127)",
+          time: "09:00 - 09:50",
+          location: "CR# 207",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "ME-A2",
+          subject: "Ideology and Constitution of Pakistan (HU-127)",
+          time: "10:00 - 10:50",
+          location: "CR# 207",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "ME-A3",
+          subject: "Complex Variables and Transforms (MATH-232)",
+          time: "11:00 - 11:50",
+          location: "CR# 207",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "ME-A4",
+          subject: "Complex Variables and Transforms (MATH-232)",
+          time: "12:00 - 12:50",
+          location: "CR# 207",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "ME-A5",
+          subject: "Civics & Community Engagement (CCE-401)",
+          time: "15:00 - 16:50",
+          location: "SMME Seminar Hall",
+          type: "lecture",
+          day: "Monday",
+        },
+        // Tuesday
+        {
+          id: "ME-A6",
+          subject: "Electrical Engineering (EE-117)",
+          time: "09:00 - 09:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "ME-A7",
+          subject: "Electrical Engineering (EE-117)",
+          time: "10:00 - 10:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "ME-A8",
+          subject: "Complex Variables and Transforms (MATH-232)",
+          time: "11:00 - 11:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "ME-A9",
+          subject: "Fluid Mechanics-I (ME-230)",
+          time: "12:00 - 12:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "ME-A10",
+          subject: "SAS Session / Faculty Meeting",
+          time: "14:00 - 15:50",
+          location: "-",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "ME-A11",
+          subject: "Library / Make-up Class",
+          time: "16:00 - 16:50",
+          location: "Library",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        // Wednesday
+        {
+          id: "ME-A12",
+          subject: "Library / Make-up Class",
+          time: "09:00 - 09:50",
+          location: "Library/Makeup",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "ME-A13",
+          subject: "Civics & Community Engagement (CCE-401)",
+          time: "10:00 - 10:50",
+          location: "CR# 206",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "ME-A14",
+          subject: "Thermodynamics-II (ME-217)",
+          time: "11:00 - 11:50",
+          location: "CR# 207 (West Wing)",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "ME-A15",
+          subject: "Thermodynamics-II (ME-217)",
+          time: "12:00 - 12:50",
+          location: "CR# 207 (West Wing)",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "ME-A16",
+          subject: "Mechanics of Materials-I (ME-210)",
+          time: "14:00 - 14:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "ME-A17",
+          subject: "Library / Make-up Class",
+          time: "15:00 - 15:50",
+          location: "Library",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        // Thursday
+        {
+          id: "ME-A18",
+          subject: "Thermodynamics Lab (ME-232)",
+          time: "09:00 - 11:50",
+          location: "Room No 202",
+          type: "lab",
+          day: "Thursday",
+        },
+        {
+          id: "ME-A19",
+          subject: "Fluid Mechanics-I (ME-230)",
+          time: "14:00 - 14:50",
+          location: "CR# 414",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "ME-A20",
+          subject: "Fluid Mechanics-I (ME-230)",
+          time: "15:00 - 15:50",
+          location: "CR# 414",
+          type: "lecture",
+          day: "Thursday",
+        },
+        // Friday
+        {
+          id: "ME-A21",
+          subject: "Mechanics of Materials-I (ME-210)",
+          time: "10:00 - 10:50",
+          location: "CR# 408",
+          type: "lecture",
+          day: "Friday",
+        },
+        {
+          id: "ME-A22",
+          subject: "Mechanics of Materials-I (ME-210)",
+          time: "11:00 - 11:50",
+          location: "CR# 408",
+          type: "lecture",
+          day: "Friday",
+        },
+        {
+          id: "ME-A23",
+          subject: "Library / Make-up Class",
+          time: "12:00 - 12:50",
+          location: "Library",
+          type: "lecture",
+          day: "Friday",
+        },
+      ],
+      B: [
+        // Monday
+        {
+          id: "ME-B1",
+          subject: "Ideology and Constitution of Pakistan (HU-127)",
+          time: "11:00 - 11:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "ME-B2",
+          subject: "Ideology and Constitution of Pakistan (HU-127)",
+          time: "12:00 - 12:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "ME-B3",
+          subject: "Civics & Community Engagement (CCE-401)",
+          time: "14:00 - 16:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Monday",
+        },
+
+        //Tuesday
+        {
+          id: "ME-B16",
+          subject: "Civics and Community Engagement (CCE-401)",
+          time: "10:00 - 10:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "ME-B4",
+          subject: "Fluid Mechanics-I (ME-230)",
+          time: "11:00 - 11:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "ME-B14",
+          subject: "SAS Session / Faculty Meeting",
+          time: "14:00 - 15:50",
+          location: "-",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        // Wednesday
+        {
+          id: "ME-B13",
+          subject: "Complex Variable and Transforms (MATH-232)",
+          time: "09:00 - 10:50",
+          location: "Room No 202",
+          type: "lab",
+          day: "Wednesday",
+        },
+        {
+          id: "ME-B15",
+          subject: "Mechanics of Materials-I (ME-210)",
+          time: "11:00 - 12:50",
+          location: "Room no 315",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "ME-B20",
+          subject: "Electrical Engineering (EE-117)",
+          time: "14:00 - 15:50",
+          location: "Room no 315",
+          type: "lecture",
+          day: "Wednesday",
+        },
+
+        // Thursday
+        {
+          id: "ME-B5",
+          subject: "Electrical Engineering (EE-117)",
+          time: "09:00 - 09:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "ME-B6",
+          subject: "Electrical Engineering (EE-117)",
+          time: "10:00 - 10:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "ME-B7",
+          subject: "Thermodynamics-II (ME-217)",
+          time: "11:00 - 11:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "ME-B8",
+          subject: "Thermodynamics-II (ME-217)",
+          time: "12:00 - 12:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "ME-B9",
+          subject: "Mechanics of Materials-I (ME-210)",
+          time: "14:00 - 14:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Thursday",
+        },
+
+        //Friday
+        {
+          id: "ME-B10",
+          subject: "Tutorial - Electrical Engineering (EE-117)",
+          time: "09:00 - 09:50",
+          location: "CR# 307",
+          type: "tutorial",
+          day: "Friday",
+        },
+        {
+          id: "ME-B11",
+          subject: "Complex Variables and Transforms (MATH-232)",
+          time: "10:00 - 10:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Friday",
+        },
+        {
+          id: "ME-B12",
+          subject: "Mechanics of Materials-I (ME-210)",
+          time: "12:00 - 12:50",
+          location: "CR# 308",
+          type: "lecture",
+          day: "Friday",
+        },
+      ],
+      C: [
+        // Monday
+        {
+          id: "ME-C1",
+          subject: "Fluid Mechanics-I (ME-230)",
+          time: "11:00 - 11:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Monday",
+        },
+        {
+          id: "ME-C2",
+          subject: "Fluid Mechanics-I (ME-230)",
+          time: "12:00 - 12:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Monday",
+        },
+        // Tuesday
+        {
+          id: "ME-C3",
+          subject: "Complex Variables and Transforms (MATH-232)",
+          time: "09:00 - 09:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "ME-C4",
+          subject: "Mechanics of Materials-I (ME-210)",
+          time: "10:00 - 10:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        {
+          id: "ME-C13",
+          subject: "SAS Session / Faculty Meeting",
+          time: "14:00 - 14:50",
+          location: "-",
+          type: "lecture",
+          day: "Tuesday",
+        },
+        // Wednesday
+        {
+          id: "ME-C5",
+          subject: "Electrical Engineering (EE-117)",
+          time: "11:00 - 11:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        {
+          id: "ME-C6",
+          subject: "Electrical Engineering (EE-117)",
+          time: "12:00 - 12:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Wednesday",
+        },
+        // Thursday
+        {
+          id: "ME-C7",
+          subject: "Tutorial - Electrical Engineering (EE-117)",
+          time: "09:00 - 09:50",
+          location: "CR# 414",
+          type: "tutorial",
+          day: "Thursday",
+        },
+        {
+          id: "ME-C8",
+          subject: "Ideology and Constitution of Pakistan (HU-127)",
+          time: "10:00 - 10:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "ME-C9",
+          subject: "Civics & Community Engagement (CCE-401)",
+          time: "11:00 - 11:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Thursday",
+        },
+        {
+          id: "ME-C10",
+          subject: "Thermodynamics-II (ME-217)",
+          time: "14:00 - 14:50",
+          location: "CR# 315",
+          type: "lecture",
+          day: "Thursday",
+        },
+        // Friday
+        {
+          id: "ME-C11",
+          subject: "Thermodynamics Lab (ME-232)",
+          time: "09:00 - 11:50",
+          location: "Room No 202",
+          type: "lab",
+          day: "Friday",
+        },
+        {
+          id: "ME-C12",
+          subject: "Library / Make-up Class",
+          time: "Various",
+          location: "Library",
+          type: "lecture",
+          day: "Throughout Week",
+        },
+      ],
+    },
     "Electrical Engineering": {
       A: [
         // Monday
@@ -972,8 +1440,6 @@ export default function UniApp() {
     ],
   }
 
-  const [schedule] = useState<ScheduleItem[]>([])
-
   const messMenuWeekA: Record<string, MessMenuItem[]> = {
     Monday: [
       { id: "wA-mon-b", meal: "breakfast", items: ["Omelette", "Paratha"], time: "07:30 - 09:30" },
@@ -1030,7 +1496,7 @@ export default function UniApp() {
         id: "mon-3",
         meal: "dinner",
         items: ["Beef Kabuli Pulao"],
-        time: "19:00 - 21:30",
+        time: "19:30 - 21:30",
       },
     ],
     Tuesday: [
@@ -1050,7 +1516,7 @@ export default function UniApp() {
         id: "tue-3",
         meal: "dinner",
         items: ["Chicken Daleem"],
-        time: "19:00 - 21:30",
+        time: "19:30 - 21:30",
       },
     ],
     Wednesday: [
@@ -1070,7 +1536,7 @@ export default function UniApp() {
         id: "wed-3",
         meal: "dinner",
         items: ["Chicken Achari", "Kheer"],
-        time: "19:00 - 21:30",
+        time: "19:30 - 21:30",
       },
     ],
     Thursday: [
@@ -1090,7 +1556,7 @@ export default function UniApp() {
         id: "thu-3",
         meal: "dinner",
         items: ["Biryani", "Cold Drinks"],
-        time: "19:00 - 21:30",
+        time: "19:30 - 21:30",
       },
     ],
     Friday: [
@@ -1110,7 +1576,7 @@ export default function UniApp() {
         id: "fri-3",
         meal: "dinner",
         items: ["Aloo Beef Keema", "Chapati"],
-        time: "19:00 - 21:30",
+        time: "19:30 - 21:30",
       },
     ],
     Saturday: [
@@ -1130,7 +1596,7 @@ export default function UniApp() {
         id: "sat-3",
         meal: "dinner",
         items: ["Chicken Pulao", "Raita"],
-        time: "19:00 - 21:30",
+        time: "19:30 - 21:30",
       },
     ],
     Sunday: [
@@ -1144,13 +1610,13 @@ export default function UniApp() {
         id: "sun-2",
         meal: "lunch",
         items: ["Beef Curry", "Rice", "Salad"],
-        time: "12:00 - 14:30",
+        time: "13:30 - 15:00",
       },
       {
         id: "sun-3",
         meal: "dinner",
         items: ["Aloo Cutlets", "Mix Daal", "Chatni"],
-        time: "19:00 - 21:30",
+        time: "19:30 - 21:30",
       },
     ],
   }
@@ -1219,7 +1685,9 @@ export default function UniApp() {
 
   const getScheduleForDay = (day: string) => {
     if (
-      (userProfile.major === "Electrical Engineering" || userProfile.major === "Computer Science") &&
+      (userProfile.major === "Electrical Engineering" ||
+        userProfile.major === "Computer Science" ||
+        userProfile.major === "Mechanical Engineering") &&
       userProfile.section
     ) {
       const majorSchedule = scheduleData[userProfile.major as keyof typeof scheduleData]
@@ -1229,16 +1697,29 @@ export default function UniApp() {
       }
     }
 
-    // majors without sections (e.g., S3H Mass Communication)
     const simpleMajorSchedule = scheduleDataNoSection[userProfile.major as keyof typeof scheduleDataNoSection]
     if (simpleMajorSchedule) {
       return simpleMajorSchedule.filter((item) => item.day === day)
     }
 
-    return schedule.filter((item) => item.day === day)
+    return []
   }
 
-  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+  const filteredExams = useMemo(() => {
+    const uniqueExams = new Map<string, ExamItem>()
+
+    examData.forEach((exam) => {
+      const matchMajor = examMajor === "all-majors" || !examMajor || exam.major === examMajor
+      if (matchMajor) {
+        const key = `${exam.date}-${exam.time}-${exam.subject}-${exam.venue}`
+        if (!uniqueExams.has(key)) {
+          uniqueExams.set(key, exam)
+        }
+      }
+    })
+
+    return Array.from(uniqueExams.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  }, [examData, examMajor])
 
   useEffect(() => {
     const currentIsoWeek = getISOWeek(new Date())
@@ -1250,6 +1731,49 @@ export default function UniApp() {
       const parsed = Number.parseInt(saved, 10)
       setMessAnchorWeek(Number.isNaN(parsed) ? currentIsoWeek : parsed)
     }
+  }, [])
+
+  useEffect(() => {
+    const fetchExamData = async () => {
+      try {
+        setLoadingExams(true)
+        const response = await fetch(
+          "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Datesheet%20-%20MSE%20Fall%202025-STjKEwKcR4WtJ7dE15cif3qXim9vxk.csv",
+        )
+        const csvText = await response.text()
+        const lines = csvText.split("\n").filter((line) => line.trim())
+
+        const majors = new Set<string>()
+        const exams: ExamItem[] = []
+
+        for (let i = 1; i < lines.length; i++) {
+          const parts = lines[i].split(",").map((p) => p.trim())
+          if (parts.length >= 2) {
+            const major = parts[0]
+            if (major) {
+              majors.add(major)
+              exams.push({
+                major,
+                batch: parts[1] || "",
+                date: parts[2] || "",
+                time: parts[3] || "",
+                subject: parts[4] || "",
+                venue: parts[5] || "",
+              })
+            }
+          }
+        }
+
+        setExamMajors(Array.from(majors).sort())
+        setExamData(exams)
+      } catch (error) {
+        console.error("Error fetching exam data:", error)
+      } finally {
+        setLoadingExams(false)
+      }
+    }
+
+    fetchExamData()
   }, [])
 
   if (!isOnboarded) {
@@ -1267,13 +1791,18 @@ export default function UniApp() {
             <form onSubmit={handleOnboardingSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="batch">Batch Number</Label>
-                <Input
-                  id="batch"
-                  placeholder="e.g., 2024"
-                  value={userProfile.batchNumber}
-                  onChange={(e) => setUserProfile((prev) => ({ ...prev, batchNumber: e.target.value }))}
-                  required
-                />
+                <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, batchNumber: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your batch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BATCH_OPTIONS.map((batch) => (
+                      <SelectItem key={batch} value={batch}>
+                        {batch}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
@@ -1283,13 +1812,11 @@ export default function UniApp() {
                     <SelectValue placeholder="Select your school" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="SEECS">SEECS</SelectItem>
-                    <SelectItem value="SMME">SMME</SelectItem>
-                    <SelectItem value="S3H">S3H</SelectItem>
-                    <SelectItem value="NBS">NBS</SelectItem>
-                    <SelectItem value="NSHS">NSHS</SelectItem>
-                    <SelectItem value="IGIS">IGIS</SelectItem>
-                    <SelectItem value="ASAB">ASAB</SelectItem>
+                    {SCHOOL_OPTIONS.map((school) => (
+                      <SelectItem key={school} value={school}>
+                        {school}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -1307,6 +1834,15 @@ export default function UniApp() {
                       <SelectItem value="Computer Science">Computer Science</SelectItem>
                       <SelectItem value="Artificial Intelligence">Artificial Intelligence</SelectItem>
                       <SelectItem value="Data Science">Data Science</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : userProfile.school === "SMME" ? (
+                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your major" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Mechanical Engineering">Mechanical Engineering</SelectItem>
                     </SelectContent>
                   </Select>
                 ) : userProfile.school === "S3H" ? (
@@ -1332,7 +1868,9 @@ export default function UniApp() {
                 )}
               </div>
 
-              {(userProfile.major === "Electrical Engineering" || userProfile.major === "Computer Science") && (
+              {(userProfile.major === "Electrical Engineering" ||
+                userProfile.major === "Computer Science" ||
+                userProfile.major === "Mechanical Engineering") && (
                 <div className="space-y-2">
                   <Label htmlFor="section">Section</Label>
                   <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, section: value }))}>
@@ -1343,7 +1881,7 @@ export default function UniApp() {
                       <SelectItem value="A">A</SelectItem>
                       <SelectItem value="B">B</SelectItem>
                       <SelectItem value="C">C</SelectItem>
-                      <SelectItem value="D">D</SelectItem>
+                      {userProfile.major === "Electrical Engineering" && <SelectItem value="D">D</SelectItem>}
                       {userProfile.major === "Computer Science" && <SelectItem value="E">E</SelectItem>}
                     </SelectContent>
                   </Select>
@@ -1357,14 +1895,12 @@ export default function UniApp() {
                     <SelectValue placeholder="Select semester" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">1st Semester</SelectItem>
-                    <SelectItem value="2">2nd Semester</SelectItem>
-                    <SelectItem value="3">3rd Semester</SelectItem>
-                    <SelectItem value="4">4th Semester</SelectItem>
-                    <SelectItem value="5">5th Semester</SelectItem>
-                    <SelectItem value="6">6th Semester</SelectItem>
-                    <SelectItem value="7">7th Semester</SelectItem>
-                    <SelectItem value="8">8th Semester</SelectItem>
+                    {SEMESTER_OPTIONS.map((sem) => (
+                      <SelectItem key={sem} value={sem}>
+                        {sem}
+                        {sem === "1" ? "st" : sem === "2" ? "nd" : sem === "3" ? "rd" : "th"} Semester
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -1425,9 +1961,9 @@ export default function UniApp() {
       </header>
 
       {/* Main Content */}
-      <main className="p-4">
+      <main className="max-w-4xl mx-auto p-4 pb-8">
         <Tabs defaultValue="schedule" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="schedule" className="gap-2">
               <Calendar className="w-4 h-4" />
               Schedule
@@ -1436,6 +1972,10 @@ export default function UniApp() {
               <Utensils className="w-4 h-4" />
               Mess Menu
             </TabsTrigger>
+            <TabsTrigger value="exams" className="gap-2">
+              <BookOpen className="w-4 h-4" />
+              MSE 2025
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="schedule" className="space-y-4">
@@ -1443,10 +1983,10 @@ export default function UniApp() {
               <h2 className="text-xl font-heading font-semibold">Class Schedule</h2>
               <Select value={selectedDay} onValueChange={setSelectedDay}>
                 <SelectTrigger className="w-32">
-                  <SelectValue />
+                  <SelectValue placeholder="Select day" />
                 </SelectTrigger>
                 <SelectContent>
-                  {days.map((day) => (
+                  {DAYS.map((day) => (
                     <SelectItem key={day} value={day}>
                       {day}
                     </SelectItem>
@@ -1494,10 +2034,10 @@ export default function UniApp() {
               <h2 className="text-xl font-heading font-semibold">Mess Menu</h2>
               <Select value={selectedMessDay} onValueChange={setSelectedMessDay}>
                 <SelectTrigger className="w-32">
-                  <SelectValue />
+                  <SelectValue placeholder="Select day" />
                 </SelectTrigger>
                 <SelectContent>
-                  {days.map((day) => (
+                  {DAYS.map((day) => (
                     <SelectItem key={day} value={day}>
                       {day}
                     </SelectItem>
@@ -1531,6 +2071,68 @@ export default function UniApp() {
               )) || (
                 <Card className="p-8 text-center">
                   <p className="text-muted-foreground">No menu available for {selectedMessDay}</p>
+                </Card>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="exams" className="space-y-4">
+            <h2 className="text-xl font-heading font-semibold">Mid Semester Exams 2025 (SEECS)</h2>
+
+            <div className="space-y-2">
+              <Label htmlFor="exam-major">Major</Label>
+              <Select value={examMajor} onValueChange={setExamMajor}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select major" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all-majors">All Majors</SelectItem>
+                  {examMajors.map((major) => (
+                    <SelectItem key={major} value={major}>
+                      {major}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-3">
+              {loadingExams ? (
+                <Card className="p-8 text-center">
+                  <p className="text-muted-foreground">Loading exam schedule...</p>
+                </Card>
+              ) : filteredExams.length > 0 ? (
+                filteredExams.map((exam, index) => (
+                  <Card key={index} className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-balance mb-2">{exam.subject}</h3>
+                        <div className="space-y-1 text-sm text-muted-foreground">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4" />
+                            {exam.date}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4" />
+                            {exam.time}
+                          </div>
+                          {exam.venue && (
+                            <div className="flex items-center gap-2">
+                              <MapPin className="w-4 h-4" />
+                              {exam.venue}
+                            </div>
+                          )}
+                          <div className="text-xs">
+                            <Badge variant="outline">{exam.major}</Badge>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))
+              ) : (
+                <Card className="p-8 text-center">
+                  <p className="text-muted-foreground">No exams found for selected filters</p>
                 </Card>
               )}
             </div>
