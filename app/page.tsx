@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, Clock, MapPin, Utensils, GraduationCap, BookOpen } from "lucide-react"
+import { Calendar, Clock, MapPin, Utensils, GraduationCap, Moon, Sun, Notebook, MoreVertical, X } from "lucide-react"
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 const BATCH_OPTIONS = ["2022", "2023", "2024", "2025"]
@@ -59,6 +59,11 @@ interface ExamItem {
   venue?: string
 }
 
+interface ClassNote {
+  scheduleId: string
+  note: string
+}
+
 export default function UniApp() {
   const [isOnboarded, setIsOnboarded] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile>({
@@ -74,10 +79,367 @@ export default function UniApp() {
   const [selectedMessDay, setSelectedMessDay] = useState(new Date().toLocaleDateString("en-US", { weekday: "long" }))
   const [messAnchorWeek, setMessAnchorWeek] = useState<number | null>(null)
 
-  const [examMajor, setExamMajor] = useState("")
-  const [examData, setExamData] = useState<ExamItem[]>([])
-  const [examMajors, setExamMajors] = useState<string[]>([])
-  const [loadingExams, setLoadingExams] = useState(false)
+  const [darkMode, setDarkMode] = useState(false)
+  // CHANGE: add state for countdown updates
+  const [, setCountdownUpdate] = useState(0)
+  const [showSidebar, setShowSidebar] = useState(false)
+
+  const [notes, setNotes] = useState<ClassNote[]>([])
+
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const savedProfile = localStorage.getItem("uniapp-profile")
+    if (savedProfile) {
+      setUserProfile(JSON.parse(savedProfile))
+      setIsOnboarded(true)
+    }
+
+    const savedDarkMode = localStorage.getItem("uniapp-dark-mode")
+    if (savedDarkMode) {
+      const isDark = JSON.parse(savedDarkMode)
+      setDarkMode(isDark)
+      if (isDark) {
+        document.documentElement.classList.add("dark")
+      }
+    }
+
+    const savedNotes = localStorage.getItem("uniapp-notes")
+    if (savedNotes) {
+      setNotes(JSON.parse(savedNotes))
+    }
+  }, [])
+
+  // CHANGE: add countdown timer effect that updates every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCountdownUpdate((prev) => prev + 1)
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem("uniapp-notes", JSON.stringify(notes))
+  }, [notes])
+
+  const handleOnboardingSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    localStorage.setItem("uniapp-profile", JSON.stringify(userProfile))
+    setIsOnboarded(true)
+  }
+
+  const handleReset = () => {
+    localStorage.removeItem("uniapp-profile")
+    localStorage.removeItem("uniapp-dark-mode")
+    localStorage.removeItem("uniapp-notes")
+    setIsOnboarded(false)
+    setUserProfile({
+      batchNumber: "",
+      school: "",
+      major: "",
+      semester: "",
+      hostelResident: false,
+      section: "",
+    })
+    setDarkMode(false)
+    document.documentElement.classList.remove("dark")
+    setNotes([])
+  }
+
+  const toggleDarkMode = () => {
+    const newDarkMode = !darkMode
+    setDarkMode(newDarkMode)
+    localStorage.setItem("uniapp-dark-mode", JSON.stringify(newDarkMode))
+    if (newDarkMode) {
+      document.documentElement.classList.add("dark")
+    } else {
+      document.documentElement.classList.remove("dark")
+    }
+  }
+
+  const getNoteForClass = (scheduleId: string): string => {
+    return notes.find((n) => n.scheduleId === scheduleId)?.note || ""
+  }
+
+  const saveNote = (scheduleId: string, noteText: string) => {
+    setNotes((prevNotes) => {
+      const existingIndex = prevNotes.findIndex((n) => n.scheduleId === scheduleId)
+      if (existingIndex >= 0) {
+        const updated = [...prevNotes]
+        updated[existingIndex] = { scheduleId, note: noteText }
+        return updated
+      }
+      return [...prevNotes, { scheduleId, note: noteText }]
+    })
+    setEditingNoteId(null)
+  }
+
+  // CHANGE: add function to calculate time until class starts
+  const getCountdownText = (timeStr: string, classDay: string): string => {
+    try {
+      const now = new Date()
+      const currentDayOfWeek = now.toLocaleDateString("en-US", { weekday: "long" })
+      const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+      const currentDayIndex = DAYS.indexOf(currentDayOfWeek)
+      const classDayIndex = DAYS.indexOf(classDay)
+
+      // If the class is on a past day this week, it's already happened
+      if (classDayIndex < currentDayIndex) {
+        return "Completed"
+      }
+
+      // If it's today, compare with current time
+      if (classDayIndex === currentDayIndex) {
+        const [startTime] = timeStr.split(" - ")
+        const [time, period] = startTime.split(" ")
+        const [hours, minutes] = time.split(":").map(Number)
+
+        let hour24 = hours
+        if (period === "PM" && hours !== 12) hour24 = hours + 12
+        if (period === "AM" && hours === 12) hour24 = 0
+
+        const classDate = new Date()
+        classDate.setHours(hour24, minutes, 0, 0)
+
+        if (classDate < now) {
+          return "In progress or ended"
+        }
+
+        const diff = classDate.getTime() - now.getTime()
+        const hrs = Math.floor(diff / (1000 * 60 * 60))
+        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+
+        if (hrs > 0) {
+          return `in ${hrs}h ${mins}m`
+        } else if (mins > 0) {
+          return `in ${mins}m`
+        } else {
+          return "Starting now"
+        }
+      } else {
+        // Future day this week
+        return "Upcoming"
+      }
+    } catch {
+      return ""
+    }
+  }
+
+  const getTypeColor = (type: ScheduleItem["type"]) => {
+    switch (type) {
+      case "lecture":
+        return "bg-primary text-primary-foreground"
+      case "lab":
+        return "bg-secondary text-secondary-foreground"
+      case "tutorial":
+        return "bg-accent text-accent-foreground"
+      case "NA":
+        return "bg-destructive text-destructive-foreground"
+      default:
+        return "bg-muted text-muted-foreground"
+    }
+  }
+
+  const getMealIcon = (meal: string) => {
+    switch (meal) {
+      case "breakfast":
+        return "🌅"
+      case "lunch":
+        return "☀️"
+      case "dinner":
+        return "🌙"
+      default:
+        return "🍽️"
+    }
+  }
+
+  const getScheduleForDay = (day: string) => {
+    if (
+      (userProfile.major === "Electrical Engineering" ||
+        userProfile.major === "Computer Science" ||
+        userProfile.major === "Mechanical Engineering") &&
+      userProfile.section
+    ) {
+      const majorSchedule = scheduleData[userProfile.major as keyof typeof scheduleData]
+      if (majorSchedule) {
+        const sectionSchedule = majorSchedule[userProfile.section as keyof typeof majorSchedule]
+        return sectionSchedule?.filter((item) => item.day === day) || []
+      }
+    }
+
+    const simpleMajorSchedule = scheduleDataNoSection[userProfile.major as keyof typeof scheduleDataNoSection]
+    if (simpleMajorSchedule) {
+      return simpleMajorSchedule.filter((item) => item.day === day)
+    }
+
+    return []
+  }
+
+  useEffect(() => {
+    const currentIsoWeek = getISOWeek(new Date())
+    const saved = localStorage.getItem("mess-menu-anchor-week")
+    if (!saved) {
+      localStorage.setItem("mess-menu-anchor-week", String(currentIsoWeek))
+      setMessAnchorWeek(currentIsoWeek)
+    } else {
+      const parsed = Number.parseInt(saved, 10)
+      setMessAnchorWeek(Number.isNaN(parsed) ? currentIsoWeek : parsed)
+    }
+  }, [])
+
+  if (!isOnboarded) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 w-16 h-16 bg-primary rounded-full flex items-center justify-center">
+              <GraduationCap className="w-8 h-8 text-primary-foreground" />
+            </div>
+            <CardTitle className="text-2xl font-heading">Welcome to UniApp</CardTitle>
+            <p className="text-muted-foreground">Let's set up your profile to get started</p>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleOnboardingSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="batch">Batch Number</Label>
+                <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, batchNumber: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your batch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BATCH_OPTIONS.map((batch) => (
+                      <SelectItem key={batch} value={batch}>
+                        {batch}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="school">School/Department</Label>
+                <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, school: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your school" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SCHOOL_OPTIONS.map((school) => (
+                      <SelectItem key={school} value={school}>
+                        {school}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="major">Major</Label>
+                {userProfile.school === "SEECS" ? (
+                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your major" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Electrical Engineering">Electrical Engineering</SelectItem>
+                      <SelectItem value="Software Engineering">Software Engineering</SelectItem>
+                      <SelectItem value="Computer Science">Computer Science</SelectItem>
+                      <SelectItem value="Artificial Intelligence">Artificial Intelligence</SelectItem>
+                      <SelectItem value="Data Science">Data Science</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : userProfile.school === "SMME" ? (
+                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your major" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Mechanical Engineering">Mechanical Engineering</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : userProfile.school === "S3H" ? (
+                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your major" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Mass Communication">Mass Communication</SelectItem>
+                      <SelectItem value="Economics">Economics</SelectItem>
+                      <SelectItem value="Public Ad">Public Ad</SelectItem>
+                      <SelectItem value="Psychology">Psychology</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id="major"
+                    placeholder="e.g., Computer Science"
+                    value={userProfile.major}
+                    onChange={(e) => setUserProfile((prev) => ({ ...prev, major: e.target.value }))}
+                    required
+                  />
+                )}
+              </div>
+
+              {(userProfile.major === "Electrical Engineering" ||
+                userProfile.major === "Computer Science" ||
+                userProfile.major === "Mechanical Engineering") && (
+                <div className="space-y-2">
+                  <Label htmlFor="section">Section</Label>
+                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, section: value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your section" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="A">A</SelectItem>
+                      <SelectItem value="B">B</SelectItem>
+                      <SelectItem value="C">C</SelectItem>
+                      {userProfile.major === "Electrical Engineering" && <SelectItem value="D">D</SelectItem>}
+                      {userProfile.major === "Computer Science" && <SelectItem value="E">E</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="semester">Current Semester</Label>
+                <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, semester: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select semester" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SEMESTER_OPTIONS.map((sem) => (
+                      <SelectItem key={sem} value={sem}>
+                        {sem}
+                        {sem === "1" ? "st" : sem === "2" ? "nd" : sem === "3" ? "rd" : "th"} Semester
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Accommodation</Label>
+                <Select
+                  onValueChange={(value) => setUserProfile((prev) => ({ ...prev, hostelResident: value === "hostel" }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select accommodation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hostel">Hostel Resident</SelectItem>
+                    <SelectItem value="day-scholar">Day Scholar</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button type="submit" className="w-full">
+                Get Started
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   const scheduleData = {
     "Mechanical Engineering": {
@@ -1628,517 +1990,298 @@ export default function UniApp() {
         : messMenuWeekB
       : messMenuWeekA
 
-  useEffect(() => {
-    const savedProfile = localStorage.getItem("uniapp-profile")
-    if (savedProfile) {
-      setUserProfile(JSON.parse(savedProfile))
-      setIsOnboarded(true)
-    }
-  }, [])
-
-  const handleOnboardingSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    localStorage.setItem("uniapp-profile", JSON.stringify(userProfile))
-    setIsOnboarded(true)
+  // FIX: Define getTodaysClasses function
+  const getTodaysClasses = (): ScheduleItem[] => {
+    const today = new Date()
+    const currentDayOfWeek = today.toLocaleDateString("en-US", { weekday: "long" })
+    return getScheduleForDay(currentDayOfWeek)
   }
 
-  const handleReset = () => {
-    localStorage.removeItem("uniapp-profile")
-    setIsOnboarded(false)
-    setUserProfile({
-      batchNumber: "",
-      school: "",
-      major: "",
-      semester: "",
-      hostelResident: false,
-      section: "",
-    })
-  }
-
-  const getTypeColor = (type: ScheduleItem["type"]) => {
-    switch (type) {
-      case "lecture":
-        return "bg-primary text-primary-foreground"
-      case "lab":
-        return "bg-secondary text-secondary-foreground"
-      case "tutorial":
-        return "bg-accent text-accent-foreground"
-      case "NA":
-        return "bg-destructive text-destructive-foreground"
-      default:
-        return "bg-muted text-muted-foreground"
-    }
-  }
-
-  const getMealIcon = (meal: string) => {
-    switch (meal) {
-      case "breakfast":
-        return "🌅"
-      case "lunch":
-        return "☀️"
-      case "dinner":
-        return "🌙"
-      default:
-        return "🍽️"
-    }
-  }
-
-  const getScheduleForDay = (day: string) => {
-    if (
-      (userProfile.major === "Electrical Engineering" ||
-        userProfile.major === "Computer Science" ||
-        userProfile.major === "Mechanical Engineering") &&
-      userProfile.section
-    ) {
-      const majorSchedule = scheduleData[userProfile.major as keyof typeof scheduleData]
-      if (majorSchedule) {
-        const sectionSchedule = majorSchedule[userProfile.section as keyof typeof majorSchedule]
-        return sectionSchedule?.filter((item) => item.day === day) || []
-      }
-    }
-
-    const simpleMajorSchedule = scheduleDataNoSection[userProfile.major as keyof typeof scheduleDataNoSection]
-    if (simpleMajorSchedule) {
-      return simpleMajorSchedule.filter((item) => item.day === day)
-    }
-
-    return []
-  }
-
-  const filteredExams = useMemo(() => {
-    const uniqueExams = new Map<string, ExamItem>()
-
-    examData.forEach((exam) => {
-      const matchMajor = examMajor === "all-majors" || !examMajor || exam.major === examMajor
-      if (matchMajor) {
-        const key = `${exam.date}-${exam.time}-${exam.subject}-${exam.venue}`
-        if (!uniqueExams.has(key)) {
-          uniqueExams.set(key, exam)
-        }
-      }
-    })
-
-    return Array.from(uniqueExams.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-  }, [examData, examMajor])
-
-  useEffect(() => {
-    const currentIsoWeek = getISOWeek(new Date())
-    const saved = localStorage.getItem("mess-menu-anchor-week")
-    if (!saved) {
-      localStorage.setItem("mess-menu-anchor-week", String(currentIsoWeek))
-      setMessAnchorWeek(currentIsoWeek)
-    } else {
-      const parsed = Number.parseInt(saved, 10)
-      setMessAnchorWeek(Number.isNaN(parsed) ? currentIsoWeek : parsed)
-    }
-  }, [])
-
-  useEffect(() => {
-    const fetchExamData = async () => {
-      try {
-        setLoadingExams(true)
-        const response = await fetch(
-          "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Datesheet%20-%20MSE%20Fall%202025-STjKEwKcR4WtJ7dE15cif3qXim9vxk.csv",
-        )
-        const csvText = await response.text()
-        const lines = csvText.split("\n").filter((line) => line.trim())
-
-        const majors = new Set<string>()
-        const exams: ExamItem[] = []
-
-        for (let i = 1; i < lines.length; i++) {
-          const parts = lines[i].split(",").map((p) => p.trim())
-          if (parts.length >= 2) {
-            const major = parts[0]
-            if (major) {
-              majors.add(major)
-              exams.push({
-                major,
-                batch: parts[1] || "",
-                date: parts[2] || "",
-                time: parts[3] || "",
-                subject: parts[4] || "",
-                venue: parts[5] || "",
-              })
-            }
-          }
-        }
-
-        setExamMajors(Array.from(majors).sort())
-        setExamData(exams)
-      } catch (error) {
-        console.error("Error fetching exam data:", error)
-      } finally {
-        setLoadingExams(false)
-      }
-    }
-
-    fetchExamData()
-  }, [])
-
-  if (!isOnboarded) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 w-16 h-16 bg-primary rounded-full flex items-center justify-center">
-              <GraduationCap className="w-8 h-8 text-primary-foreground" />
-            </div>
-            <CardTitle className="text-2xl font-heading">Welcome to UniApp</CardTitle>
-            <p className="text-muted-foreground">Let's set up your profile to get started</p>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleOnboardingSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="batch">Batch Number</Label>
-                <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, batchNumber: value }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select your batch" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {BATCH_OPTIONS.map((batch) => (
-                      <SelectItem key={batch} value={batch}>
-                        {batch}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="school">School/Department</Label>
-                <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, school: value }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select your school" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SCHOOL_OPTIONS.map((school) => (
-                      <SelectItem key={school} value={school}>
-                        {school}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="major">Major</Label>
-                {userProfile.school === "SEECS" ? (
-                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your major" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Electrical Engineering">Electrical Engineering</SelectItem>
-                      <SelectItem value="Software Engineering">Software Engineering</SelectItem>
-                      <SelectItem value="Computer Science">Computer Science</SelectItem>
-                      <SelectItem value="Artificial Intelligence">Artificial Intelligence</SelectItem>
-                      <SelectItem value="Data Science">Data Science</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : userProfile.school === "SMME" ? (
-                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your major" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Mechanical Engineering">Mechanical Engineering</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : userProfile.school === "S3H" ? (
-                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your major" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Mass Communication">Mass Communication</SelectItem>
-                      <SelectItem value="Economics">Economics</SelectItem>
-                      <SelectItem value="Public Ad">Public Ad</SelectItem>
-                      <SelectItem value="Psychology">Psychology</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    id="major"
-                    placeholder="e.g., Computer Science"
-                    value={userProfile.major}
-                    onChange={(e) => setUserProfile((prev) => ({ ...prev, major: e.target.value }))}
-                    required
-                  />
-                )}
-              </div>
-
-              {(userProfile.major === "Electrical Engineering" ||
-                userProfile.major === "Computer Science" ||
-                userProfile.major === "Mechanical Engineering") && (
-                <div className="space-y-2">
-                  <Label htmlFor="section">Section</Label>
-                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, section: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your section" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="A">A</SelectItem>
-                      <SelectItem value="B">B</SelectItem>
-                      <SelectItem value="C">C</SelectItem>
-                      {userProfile.major === "Electrical Engineering" && <SelectItem value="D">D</SelectItem>}
-                      {userProfile.major === "Computer Science" && <SelectItem value="E">E</SelectItem>}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="semester">Current Semester</Label>
-                <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, semester: value }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select semester" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SEMESTER_OPTIONS.map((sem) => (
-                      <SelectItem key={sem} value={sem}>
-                        {sem}
-                        {sem === "1" ? "st" : sem === "2" ? "nd" : sem === "3" ? "rd" : "th"} Semester
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Accommodation</Label>
-                <Select
-                  onValueChange={(value) => setUserProfile((prev) => ({ ...prev, hostelResident: value === "hostel" }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select accommodation" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="hostel">Hostel Resident</SelectItem>
-                    <SelectItem value="day-scholar">Day Scholar</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Button type="submit" className="w-full">
-                Get Started
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
+  const todaysClasses = getTodaysClasses()
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="bg-card border-b border-border p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
-              <GraduationCap className="w-5 h-5 text-primary-foreground" />
+    <div className={`min-h-screen ${darkMode ? "dark" : ""}`}>
+      <div className="min-h-screen bg-background">
+        {/* Header */}
+        <header className="bg-card border-b border-border p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
+                <GraduationCap className="w-5 h-5 text-primary-foreground" />
+              </div>
+              <div>
+                <h1 className="font-heading font-bold text-lg">UniApp</h1>
+                <p className="text-sm text-muted-foreground">
+                  {userProfile.major} • Semester {userProfile.semester}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="font-heading font-bold text-lg">UniApp</h1>
-              <p className="text-sm text-muted-foreground">
-                {userProfile.major} • Semester {userProfile.semester}
-              </p>
+            <div className="flex items-center gap-2">
+              {userProfile.hostelResident && (
+                <Badge variant="secondary" className="gap-1">
+                  <MapPin className="w-3 h-3" />
+                  Hostel
+                </Badge>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setShowSidebar(!showSidebar)} title="More options">
+                <MoreVertical className="w-4 h-4" />
+              </Button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {userProfile.hostelResident && (
-              <Badge variant="secondary" className="gap-1">
-                <MapPin className="w-3 h-3" />
-                Hostel
-              </Badge>
-            )}
-            <Button variant="outline" size="sm" onClick={handleReset}>
-              Reset
+        </header>
+
+        {showSidebar && <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowSidebar(false)} />}
+        <div
+          className={`fixed top-0 right-0 h-screen w-64 bg-card border-l border-border shadow-lg transform transition-transform duration-300 z-50 ${showSidebar ? "translate-x-0" : "translate-x-full"}`}
+        >
+          <div className="p-4 border-b border-border flex items-center justify-between">
+            <h2 className="font-bold text-lg">More Options</h2>
+            <Button variant="ghost" size="sm" onClick={() => setShowSidebar(false)}>
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+          <div className="p-4 space-y-3">
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2 bg-transparent"
+              onClick={() => {
+                toggleDarkMode()
+                setShowSidebar(false)
+              }}
+            >
+              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {darkMode ? "Light Mode" : "Dark Mode"}
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2 bg-transparent"
+              onClick={() => {
+                handleReset()
+                setShowSidebar(false)
+              }}
+            >
+              Reset Profile
             </Button>
           </div>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="max-w-4xl mx-auto p-4 pb-8">
-        <Tabs defaultValue="schedule" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="schedule" className="gap-2">
-              <Calendar className="w-4 h-4" />
-              Schedule
-            </TabsTrigger>
-            <TabsTrigger value="mess" className="gap-2">
-              <Utensils className="w-4 h-4" />
-              Mess Menu
-            </TabsTrigger>
-            <TabsTrigger value="exams" className="gap-2">
-              <BookOpen className="w-4 h-4" />
-              MSE 2025
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="schedule" className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-heading font-semibold">Class Schedule</h2>
-              <Select value={selectedDay} onValueChange={setSelectedDay}>
-                <SelectTrigger className="w-32">
-                  <SelectValue placeholder="Select day" />
-                </SelectTrigger>
-                <SelectContent>
-                  {DAYS.map((day) => (
-                    <SelectItem key={day} value={day}>
-                      {day}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-3">
-              {getScheduleForDay(selectedDay).length > 0 ? (
-                getScheduleForDay(selectedDay).map((item) => (
-                  <Card key={item.id} className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <h3 className="font-semibold text-balance">{item.subject}</h3>
-                          <Badge className={getTypeColor(item.type)} variant="secondary">
-                            {item.type}
-                          </Badge>
-                        </div>
-                        <div className="space-y-1 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-4 h-4" />
-                            {item.time}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <MapPin className="w-4 h-4" />
-                            {item.location}
-                          </div>
+        {/* Main Content */}
+        <main className="max-w-4xl mx-auto p-4 pb-8">
+          {todaysClasses.length > 0 && (
+            <Card className="mb-6 bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Calendar className="w-5 h-5 text-primary" />
+                  Today's Classes
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {todaysClasses.slice(0, 3).map((item) => (
+                    <div key={item.id} className="flex items-center justify-between p-2 bg-background/60 rounded">
+                      <div className="flex items-center gap-2 flex-1">
+                        <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-sm truncate">{item.subject}</p>
+                          <p className="text-xs text-muted-foreground">{item.time}</p>
                         </div>
                       </div>
-                    </div>
-                  </Card>
-                ))
-              ) : (
-                <Card className="p-8 text-center">
-                  <p className="text-muted-foreground">No classes scheduled for {selectedDay}</p>
-                </Card>
-              )}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="mess" className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-heading font-semibold">Mess Menu</h2>
-              <Select value={selectedMessDay} onValueChange={setSelectedMessDay}>
-                <SelectTrigger className="w-32">
-                  <SelectValue placeholder="Select day" />
-                </SelectTrigger>
-                <SelectContent>
-                  {DAYS.map((day) => (
-                    <SelectItem key={day} value={day}>
-                      {day}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-4">
-              {messMenu[selectedMessDay]?.map((meal) => (
-                <Card key={meal.id}>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2 text-lg capitalize">
-                      <span className="text-xl">{getMealIcon(meal.meal)}</span>
-                      {meal.meal}
-                      <Badge variant="outline" className="ml-auto">
-                        {meal.time}
-                      </Badge>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap gap-2">
-                      {meal.items.map((item, index) => (
-                        <Badge key={index} variant="secondary" className="text-xs">
-                          {item}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Badge className="bg-primary/20 text-primary border-primary/30 text-xs">
+                          {getCountdownText(item.time, item.day)}
                         </Badge>
-                      ))}
+                        <Badge variant="outline" className="flex-shrink-0">
+                          {item.type}
+                        </Badge>
+                      </div>
                     </div>
-                  </CardContent>
-                </Card>
-              )) || (
-                <Card className="p-8 text-center">
-                  <p className="text-muted-foreground">No menu available for {selectedMessDay}</p>
-                </Card>
-              )}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="exams" className="space-y-4">
-            <h2 className="text-xl font-heading font-semibold">Mid Semester Exams 2025 (SEECS)</h2>
-
-            <div className="space-y-2">
-              <Label htmlFor="exam-major">Major</Label>
-              <Select value={examMajor} onValueChange={setExamMajor}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select major" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all-majors">All Majors</SelectItem>
-                  {examMajors.map((major) => (
-                    <SelectItem key={major} value={major}>
-                      {major}
-                    </SelectItem>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
+                  {todaysClasses.length > 3 && (
+                    <p className="text-xs text-muted-foreground text-center pt-2">
+                      +{todaysClasses.length - 3} more classes today
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-            <div className="space-y-3">
-              {loadingExams ? (
-                <Card className="p-8 text-center">
-                  <p className="text-muted-foreground">Loading exam schedule...</p>
-                </Card>
-              ) : filteredExams.length > 0 ? (
-                filteredExams.map((exam, index) => (
-                  <Card key={index} className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-balance mb-2">{exam.subject}</h3>
-                        <div className="space-y-1 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="w-4 h-4" />
-                            {exam.date}
+          <Tabs defaultValue="schedule" className="w-full">
+            {/* CHANGE: changed grid-cols-3 to grid-cols-2 for two tabs */}
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="schedule" className="gap-2">
+                <Calendar className="w-4 h-4" />
+                Schedule
+              </TabsTrigger>
+              <TabsTrigger value="mess" className="gap-2">
+                <Utensils className="w-4 h-4" />
+                Mess Menu
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="schedule" className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-heading font-semibold">Class Schedule</h2>
+                <Select value={selectedDay} onValueChange={setSelectedDay}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue placeholder="Select day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DAYS.map((day) => (
+                      <SelectItem key={day} value={day}>
+                        {day}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-3">
+                {getScheduleForDay(selectedDay).length > 0 ? (
+                  getScheduleForDay(selectedDay).map((item) => {
+                    const noteText = getNoteForClass(item.id)
+                    const isEditing = editingNoteId === item.id
+
+                    return (
+                      <Card key={item.id} className="p-4">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h3 className="font-semibold text-balance">{item.subject}</h3>
+                              <Badge className={getTypeColor(item.type)} variant="secondary">
+                                {item.type}
+                              </Badge>
+                            </div>
+                            <div className="space-y-1 text-sm text-muted-foreground">
+                              <div className="flex items-center gap-2">
+                                <Clock className="w-4 h-4" />
+                                {item.time}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <MapPin className="w-4 h-4" />
+                                {item.location}
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-4 h-4" />
-                            {exam.time}
+                          {/* CHANGE: Add countdown text */}
+                          <div className="text-xs font-medium text-primary ml-4 flex-shrink-0">
+                            {/* Added day parameter to getCountdownText */}
+                            {getCountdownText(item.time, item.day)}
                           </div>
-                          {exam.venue && (
-                            <div className="flex items-center gap-2">
-                              <MapPin className="w-4 h-4" />
-                              {exam.venue}
+                        </div>
+
+                        <div className="mt-4 pt-4 border-t border-border">
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <Input
+                                id={`note-${item.id}`} // Added id for easier access
+                                placeholder="Add your class notes..."
+                                defaultValue={noteText}
+                                // Removed onchange and used onBlur to save notes
+                                onBlur={(e) => saveNote(item.id, e.currentTarget.value)}
+                                autoFocus
+                                className="text-sm"
+                              />
+                              <div className="flex gap-2 text-xs">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  // Added explicit call to saveNote on button click
+                                  onClick={() =>
+                                    saveNote(
+                                      item.id,
+                                      (document.querySelector(`#note-${item.id}`) as HTMLInputElement)?.value || "",
+                                    )
+                                  }
+                                >
+                                  Save
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setEditingNoteId(null)}>
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              className="cursor-pointer p-2 rounded hover:bg-accent/10 transition-colors"
+                              onClick={() => setEditingNoteId(item.id)}
+                            >
+                              {noteText ? (
+                                <div className="flex gap-2 text-sm">
+                                  <Notebook className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                                  <p className="text-muted-foreground">{noteText}</p>
+                                </div>
+                              ) : (
+                                <div className="flex gap-2 text-sm text-muted-foreground/60">
+                                  <Notebook className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                  <p>Click to add notes...</p>
+                                </div>
+                              )}
                             </div>
                           )}
-                          <div className="text-xs">
-                            <Badge variant="outline">{exam.major}</Badge>
-                          </div>
                         </div>
-                      </div>
-                    </div>
+                      </Card>
+                    )
+                  })
+                ) : (
+                  <Card className="p-8 text-center">
+                    <p className="text-muted-foreground">No classes scheduled for {selectedDay}</p>
                   </Card>
-                ))
-              ) : (
-                <Card className="p-8 text-center">
-                  <p className="text-muted-foreground">No exams found for selected filters</p>
-                </Card>
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
-      </main>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="mess" className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-heading font-semibold">Mess Menu</h2>
+                <Select value={selectedMessDay} onValueChange={setSelectedMessDay}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue placeholder="Select day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DAYS.map((day) => (
+                      <SelectItem key={day} value={day}>
+                        {day}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-4">
+                {messMenu[selectedMessDay]?.map((meal) => (
+                  <Card key={meal.id}>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex items-center gap-2 text-lg capitalize">
+                        <span className="text-xl">{getMealIcon(meal.meal)}</span>
+                        {meal.meal}
+                        <Badge variant="outline" className="ml-auto">
+                          {meal.time}
+                        </Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2">
+                        {meal.items.map((item, index) => (
+                          <Badge key={index} variant="secondary" className="text-xs">
+                            {item}
+                          </Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )) || (
+                  <Card className="p-8 text-center">
+                    <p className="text-muted-foreground">No menu available for {selectedMessDay}</p>
+                  </Card>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* Removed Exams TabsContent */}
+          </Tabs>
+        </main>
+      </div>
     </div>
   )
 }
