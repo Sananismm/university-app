@@ -77,7 +77,6 @@ export default function UniApp() {
 
   const [selectedDay, setSelectedDay] = useState(new Date().toLocaleDateString("en-US", { weekday: "long" }))
   const [selectedMessDay, setSelectedMessDay] = useState(new Date().toLocaleDateString("en-US", { weekday: "long" }))
-  const [messAnchorWeek, setMessAnchorWeek] = useState<number | null>(null)
 
   const [darkMode, setDarkMode] = useState(false)
   // CHANGE: add state for countdown updates
@@ -99,9 +98,7 @@ export default function UniApp() {
     if (savedDarkMode) {
       const isDark = JSON.parse(savedDarkMode)
       setDarkMode(isDark)
-      if (isDark) {
-        document.documentElement.classList.add("dark")
-      }
+      document.documentElement.classList.toggle("dark", isDark)
     }
 
     const savedNotes = localStorage.getItem("uniapp-notes")
@@ -119,6 +116,7 @@ export default function UniApp() {
   }, [])
 
   useEffect(() => {
+    // FIX: Correctly save notes to localStorage
     localStorage.setItem("uniapp-notes", JSON.stringify(notes))
   }, [notes])
 
@@ -274,18 +272,6 @@ export default function UniApp() {
 
     return []
   }
-
-  useEffect(() => {
-    const currentIsoWeek = getISOWeek(new Date())
-    const saved = localStorage.getItem("mess-menu-anchor-week")
-    if (!saved) {
-      localStorage.setItem("mess-menu-anchor-week", String(currentIsoWeek))
-      setMessAnchorWeek(currentIsoWeek)
-    } else {
-      const parsed = Number.parseInt(saved, 10)
-      setMessAnchorWeek(Number.isNaN(parsed) ? currentIsoWeek : parsed)
-    }
-  }, [])
 
   if (!isOnboarded) {
     return (
@@ -1802,193 +1788,58 @@ export default function UniApp() {
     ],
   }
 
-  const messMenuWeekA: Record<string, MessMenuItem[]> = {
+  const messMenu: Record<string, MessMenuItem[]> = {
     Monday: [
-      { id: "wA-mon-b", meal: "breakfast", items: ["Omelette", "Paratha"], time: "07:30 - 09:30" },
-      { id: "wA-mon-l", meal: "lunch", items: ["Aloo Baingan"], time: "12:00 - 14:30" },
-      { id: "wA-mon-d", meal: "dinner", items: ["Channa Pulao", "Raita"], time: "19:00 - 21:30" },
+      { id: "mon-b", meal: "breakfast", items: ["Kulcha", "Channa", "Tea"], time: "07:30 - 09:30" },
+      { id: "mon-l", meal: "lunch", items: ["Aloo Palik", "Pickle", "Chapati"], time: "12:45 - 15:30" }, // Updated lunch time to 12:45 - 15:30
+      { id: "mon-d", meal: "dinner", items: ["Mutter Pulao / Channa Pulao", "Raita"], time: "19:30 - 21:30" }, // Updated dinner time to 19:30 - 21:30
     ],
     Tuesday: [
-      { id: "wA-tue-b", meal: "breakfast", items: ["Kulcha Channa"], time: "07:30 - 09:30" },
-      { id: "wA-tue-l", meal: "lunch", items: ["Daal Mash", "Salad"], time: "12:00 - 14:30" },
-      { id: "wA-tue-d", meal: "dinner", items: ["Murgh Channay"], time: "19:00 - 21:30" },
+      { id: "tue-b", meal: "breakfast", items: ["Omelette", "Paratha", "Tea"], time: "07:30 - 09:30" },
+      { id: "tue-l", meal: "lunch", items: ["Daal Mash", "Salad", "Chapati"], time: "12:45 - 15:30" }, // Updated lunch time
+      { id: "tue-d", meal: "dinner", items: ["Chicken Acharhi", "Chapati", "Zarda / Kheer"], time: "19:30 - 21:30" }, // Updated dinner time
     ],
     Wednesday: [
-      { id: "wA-wed-b", meal: "breakfast", items: ["Half & Full Fried Egg"], time: "07:30 - 09:30" },
-      { id: "wA-wed-l", meal: "lunch", items: ["Kari Pakora", "Naan"], time: "12:00 - 14:30" },
-      { id: "wA-wed-d", meal: "dinner", items: ["Chicken Achari", "Zarda"], time: "19:00 - 21:30" },
-    ],
-    Thursday: [
-      { id: "wA-thu-b", meal: "breakfast", items: ["Egg Tomato Onion"], time: "07:30 - 09:30" },
-      { id: "wA-thu-l", meal: "lunch", items: ["Daal Kaddu"], time: "12:00 - 14:30" },
-      { id: "wA-thu-d", meal: "dinner", items: ["Biryani", "Cold Drinks"], time: "19:00 - 21:30" },
-    ],
-    Friday: [
-      { id: "wA-fri-b", meal: "breakfast", items: ["French Toast"], time: "07:30 - 09:30" },
-      { id: "wA-fri-l", meal: "lunch", items: ["Daal Chawal (Black)"], time: "12:00 - 14:30" },
-      { id: "wA-fri-d", meal: "dinner", items: ["Aloo Beef Keema", "Chapati"], time: "19:00 - 21:30" },
-    ],
-    Saturday: [
-      { id: "wA-sat-b", meal: "breakfast", items: ["Aloo Paratha"], time: "07:30 - 09:30" },
-      { id: "wA-sat-l", meal: "lunch", items: ["Lobia"], time: "12:00 - 14:30" },
-      { id: "wA-sat-d", meal: "dinner", items: ["Chicken Pulao", "Raita"], time: "19:00 - 21:30" },
-    ],
-    Sunday: [
-      { id: "wA-sun-b", meal: "breakfast", items: ["Halwa Puri", "Channa"], time: "07:30 - 09:30" },
-      { id: "wA-sun-l", meal: "lunch", items: ["Bhindi", "Salad"], time: "12:00 - 14:30" },
-      { id: "wA-sun-d", meal: "dinner", items: ["Chicken Chowmein"], time: "19:00 - 21:30" },
-    ],
-  }
-
-  const messMenuWeekB: Record<string, MessMenuItem[]> = {
-    Monday: [
+      { id: "wed-b", meal: "breakfast", items: ["Half & Full Fried Egg", "Paratha", "Tea"], time: "07:30 - 09:30" },
+      { id: "wed-l", meal: "lunch", items: ["White Rice / Naan", "Pakora Kari", "Pickle"], time: "12:45 - 15:30" }, // Updated lunch time
       {
-        id: "mon-1",
-        meal: "breakfast",
-        items: ["Omelette", "Paratha"],
-        time: "07:30 - 09:30",
-      },
-      {
-        id: "mon-2",
-        meal: "lunch",
-        items: ["Aloo Palak"],
-        time: "12:00 - 14:30",
-      },
-      {
-        id: "mon-3",
+        id: "wed-d",
         meal: "dinner",
-        items: ["Beef Kabuli Pulao"],
-        time: "19:30 - 21:30",
-      },
-    ],
-    Tuesday: [
-      {
-        id: "tue-1",
-        meal: "breakfast",
-        items: ["Kulcha Channa"],
-        time: "07:30 - 09:30",
-      },
-      {
-        id: "tue-2",
-        meal: "lunch",
-        items: ["Daal Mash", "Salad"],
-        time: "12:00 - 14:30",
-      },
-      {
-        id: "tue-3",
-        meal: "dinner",
-        items: ["Chicken Daleem"],
-        time: "19:30 - 21:30",
-      },
-    ],
-    Wednesday: [
-      {
-        id: "wed-1",
-        meal: "breakfast",
-        items: ["Half & Full Fried Egg", "Paratha"],
-        time: "07:30 - 09:30",
-      },
-      {
-        id: "wed-2",
-        meal: "lunch",
-        items: ["Kari Pakora", "Rice"],
-        time: "12:00 - 14:30",
-      },
-      {
-        id: "wed-3",
-        meal: "dinner",
-        items: ["Chicken Achari", "Kheer"],
-        time: "19:30 - 21:30",
+        items: ["Murgh Chanay / Chicken Daleen", "Chapati / Naan"],
+        time: "19:30 - 21:30", // Updated dinner time
       },
     ],
     Thursday: [
       {
-        id: "thu-1",
+        id: "thu-b",
         meal: "breakfast",
-        items: ["Scrambled Egg"],
+        items: ["Scrambled Egg / Egg with Onion & Tomato", "Paratha", "Tea"],
         time: "07:30 - 09:30",
       },
-      {
-        id: "thu-2",
-        meal: "lunch",
-        items: ["Daal Kaddu"],
-        time: "12:00 - 14:30",
-      },
-      {
-        id: "thu-3",
-        meal: "dinner",
-        items: ["Biryani", "Cold Drinks"],
-        time: "19:30 - 21:30",
-      },
+      { id: "thu-l", meal: "lunch", items: ["Daal Kadu", "Pickle", "Chapati"], time: "12:45 - 15:30" }, // Updated lunch time
+      { id: "thu-d", meal: "dinner", items: ["Chicken Biryani", "Raita", "Cold Drinks"], time: "19:30 - 21:30" }, // Updated dinner time
     ],
     Friday: [
-      {
-        id: "fri-1",
-        meal: "breakfast",
-        items: ["Bread", "Butter & Jam"],
-        time: "07:30 - 09:30",
-      },
-      {
-        id: "fri-2",
-        meal: "lunch",
-        items: ["Daal Chawal (Yellow)"],
-        time: "12:00 - 14:30",
-      },
-      {
-        id: "fri-3",
-        meal: "dinner",
-        items: ["Aloo Beef Keema", "Chapati"],
-        time: "19:30 - 21:30",
-      },
+      { id: "fri-b", meal: "breakfast", items: ["Bread", "Butter & Jam / French Toast", "Tea"], time: "07:30 - 09:30" },
+      { id: "fri-l", meal: "lunch", items: ["White Rice", "Daal Mong / Daal Masoor", "Pickle"], time: "12:45 - 15:30" }, // Updated lunch time
+      { id: "fri-d", meal: "dinner", items: ["Aloo Bhujia / Beef Chapli Kabab", "Chapati"], time: "19:30 - 21:30" }, // Updated dinner time
     ],
     Saturday: [
-      {
-        id: "sat-1",
-        meal: "breakfast",
-        items: ["Aloo Paratha"],
-        time: "07:30 - 09:30",
-      },
-      {
-        id: "sat-2",
-        meal: "lunch",
-        items: ["Black Channa"],
-        time: "12:00 - 14:30",
-      },
-      {
-        id: "sat-3",
-        meal: "dinner",
-        items: ["Chicken Pulao", "Raita"],
-        time: "19:30 - 21:30",
-      },
+      { id: "sat-b", meal: "breakfast", items: ["Aloo Paratha", "Yogurt", "Tea"], time: "09:00 - 10:30" }, // Updated breakfast to weekend timing 09:00 - 10:30
+      { id: "sat-l", meal: "lunch", items: ["Black Channa", "Pickle", "Chapati"], time: "14:00 - 15:30" }, // Updated lunch to weekend timing 14:00 - 15:30
+      { id: "sat-d", meal: "dinner", items: ["Chicken Pulao", "Raita"], time: "19:30 - 21:30" }, // Updated dinner time
     ],
     Sunday: [
+      { id: "sun-b", meal: "breakfast", items: ["Halwa Puri", "Channa", "Tea"], time: "09:00 - 10:30" }, // Updated breakfast to weekend timing 09:00 - 10:30
+      { id: "sun-l", meal: "lunch", items: ["Seasonal Vegetable", "Chapati"], time: "14:00 - 15:30" }, // Updated lunch to weekend timing 14:00 - 15:30
       {
-        id: "sun-1",
-        meal: "breakfast",
-        items: ["Halwa Puri", "Channa"],
-        time: "07:30 - 09:30",
-      },
-      {
-        id: "sun-2",
-        meal: "lunch",
-        items: ["Beef Curry", "Rice", "Salad"],
-        time: "13:30 - 15:00",
-      },
-      {
-        id: "sun-3",
+        id: "sun-d",
         meal: "dinner",
-        items: ["Aloo Cutlets", "Mix Daal", "Chatni"],
-        time: "19:30 - 21:30",
+        items: ["Chicken Chowmein / Aloo Cutlets", "Daal Mix", "Chatni", "Chapati"],
+        time: "19:30 - 21:30", // Updated dinner time
       },
     ],
   }
-
-  const messMenu: Record<string, MessMenuItem[]> =
-    messAnchorWeek !== null
-      ? (getISOWeek(new Date()) - messAnchorWeek) % 2 === 0
-        ? messMenuWeekA
-        : messMenuWeekB
-      : messMenuWeekA
 
   // FIX: Define getTodaysClasses function
   const getTodaysClasses = (): ScheduleItem[] => {
@@ -2078,19 +1929,22 @@ export default function UniApp() {
               <CardContent>
                 <div className="space-y-2">
                   {todaysClasses.slice(0, 3).map((item) => (
-                    <div key={item.id} className="flex items-center justify-between p-2 bg-background/60 rounded">
-                      <div className="flex items-center gap-2 flex-1">
+                    <div
+                      key={item.id}
+                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-2 bg-background/60 rounded gap-2"
+                    >
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
                         <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold text-sm truncate">{item.subject}</p>
                           <p className="text-xs text-muted-foreground">{item.time}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <Badge className="bg-primary/20 text-primary border-primary/30 text-xs">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge className="bg-primary/20 text-primary border-primary/30 text-xs whitespace-nowrap">
                           {getCountdownText(item.time, item.day)}
                         </Badge>
-                        <Badge variant="outline" className="flex-shrink-0">
+                        <Badge variant="outline" className="text-xs whitespace-nowrap">
                           {item.type}
                         </Badge>
                       </div>
