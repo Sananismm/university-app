@@ -451,18 +451,18 @@ const getScheduleForDay = (day: string) => {
     <div className={`min-h-screen ${darkMode ? 'dark' : ''}`}>
       <div className="min-h-screen bg-background">
         {/* Header */}
-        <header className="bg-card/95 backdrop-blur border-b p-4 sticky top-0 z-30">
-          <div className="max-w-4xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-3">
+        <header className="bg-card/95 backdrop-blur border-b px-3 py-3 sm:p-4 sticky top-0 z-30">
+          <div className="max-w-4xl mx-auto flex items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <div className="w-10 h-10 bg-gradient-to-r from-primary to-secondary rounded-xl flex items-center justify-center shadow-lg">
                 <GraduationCap className="w-5 h-5 text-background drop-shadow-sm" />
               </div>
-              <div>
+              <div className="min-w-0">
 
-                <h1 className="font-bold text-xl">UniApp</h1>
-                <div className="flex items-center gap-1 mt-1">
+                <h1 className="font-bold text-lg sm:text-xl leading-tight">UniApp</h1>
+                <div className="flex items-center gap-1 mt-1 min-w-0">
                   <Select value={userProfile.major} onValueChange={(major) => setUserProfile(prev => ({ ...prev, major }))}>
-                    <SelectTrigger className="h-8 w-32 text-xs border-0 bg-transparent hover:bg-transparent p-0">
+                    <SelectTrigger className="h-8 w-24 sm:w-32 text-xs border-0 bg-transparent hover:bg-transparent p-0 truncate">
                       <SelectValue placeholder="Select major" />
                     </SelectTrigger>
                     <SelectContent align="end" className="w-48">
@@ -471,24 +471,24 @@ const getScheduleForDay = (day: string) => {
                       ))}
                     </SelectContent>
                   </Select>
-                  <span className="text-sm text-muted-foreground">• {userProfile.semester} Sem</span>
+                  <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">• {userProfile.semester} Sem</span>
                 </div>
 
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               {userProfile.hostelResident && (
-                <Badge variant="outline" className="gap-1 px-2 py-0.5 text-xs">
+                <Badge variant="outline" className="hidden sm:inline-flex gap-1 px-2 py-0.5 text-xs">
                   <MapPin className="w-3 h-3" />
                   Hostel
                 </Badge>
               )}
 
-                      {availableMajors.length > 0 && (
-                        <Badge variant="secondary" className="text-xs">
-                          📊 {availableMajors.length} unique majors from XLSX
-                        </Badge>
-                      )}
+              {availableMajors.length > 0 && (
+                <Badge variant="secondary" className="hidden md:inline-flex text-xs">
+                  📊 {availableMajors.length} unique majors from XLSX
+                </Badge>
+              )}
 
               <Button variant="ghost" size="sm" onClick={() => setShowSidebar(true)} className="h-9 w-9 p-0">
                 <MoreVertical className="w-4 h-4" />
@@ -498,33 +498,33 @@ const getScheduleForDay = (day: string) => {
         </header>
 
         {/* Mobile Sidebar */}
-{showSidebar && (
-  <>
-    <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowSidebar(false)} />
-    <div className="fixed top-0 right-0 h-full w-80 bg-card border-l shadow-2xl z-50 transform transition-all translate-x-0">
-      <div className="p-6 border-b flex items-center justify-between">
-        <h2 className="font-bold text-lg">Options</h2>
-        <Button variant="ghost" size="sm" onClick={() => setShowSidebar(false)}>
-          <X className="w-5 h-5" />
-        </Button>
-      </div>
-      <div className="p-6 space-y-3">
-        <Button variant={darkMode ? "default" : "outline"} className="w-full justify-start gap-2" onClick={toggleDarkMode}>
-          {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          {darkMode ? "Light" : "Dark"} Mode
-        </Button>
-        <Button variant="destructive" className="w-full" onClick={() => {
-          localStorage.clear()
-          location.reload()
-        }}>
-          Reset Everything
-        </Button>
-      </div>
-    </div>
-  </>
-)}
+        {showSidebar && (
+          <>
+            <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowSidebar(false)} />
+            <div className="fixed top-0 right-0 h-full w-[85vw] max-w-sm bg-card border-l shadow-2xl z-50 transform transition-all translate-x-0">
+              <div className="p-4 sm:p-6 border-b flex items-center justify-between">
+                <h2 className="font-bold text-lg">Options</h2>
+                <Button variant="ghost" size="sm" onClick={() => setShowSidebar(false)}>
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+              <div className="p-4 sm:p-6 space-y-3">
+                <Button variant={darkMode ? "default" : "outline"} className="w-full justify-start gap-2" onClick={toggleDarkMode}>
+                  {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                  {darkMode ? "Light" : "Dark"} Mode
+                </Button>
+                <Button variant="destructive" className="w-full" onClick={() => {
+                  localStorage.clear()
+                  location.reload()
+                }}>
+                  Reset Everything
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
 
-        <main className="max-w-4xl mx-auto p-6 pb-20">
+        <main className="max-w-4xl mx-auto px-4 py-6 pb-20 sm:p-6 sm:pb-20">
           {/* Today's Classes */}
           {todaysClasses.length > 0 && (
             <Card className="mb-8 bg-gradient-to-br from-primary/5 to-primary/20 border-primary/30 shadow-xl">
@@ -534,7 +534,7 @@ const getScheduleForDay = (day: string) => {
                     <Calendar className="w-6 h-6 text-primary" />
                   </div>
                   <div>
-                    <CardTitle className="text-2xl font-bold">Today's Classes</CardTitle>
+                    <CardTitle className="text-xl sm:text-2xl font-bold">Today's Classes</CardTitle>
                     <p className="text-muted-foreground">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
                   </div>
                 </div>
@@ -544,18 +544,18 @@ const getScheduleForDay = (day: string) => {
                   {todaysClasses.slice(0, 4).map((cls) => (
                     <div key={cls.id} className="group flex items-start p-4 rounded-2xl bg-background/50 border hover:border-primary/50 transition-all hover:shadow-md">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between mb-1">
-                          <h3 className="font-bold text-lg line-clamp-1">{cls.subject}</h3>
+                        <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
+                          <h3 className="font-bold text-base sm:text-lg line-clamp-2 sm:line-clamp-1">{cls.subject}</h3>
                           <Badge className={getTypeColor(cls.type)}>{cls.type}</Badge>
                         </div>
-                        <div className="flex items-center gap-6 text-sm text-muted-foreground mb-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-6 text-sm text-muted-foreground mb-2">
                           <div className="flex items-center gap-1.5">
                             <Clock className="w-4 h-4" />
                             {cls.time}
                           </div>
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
                             <MapPin className="w-4 h-4" />
-                            {cls.location}
+                            <span className="truncate">{cls.location}</span>
                           </div>
                         </div>
                         <Badge variant="secondary" className="text-sm font-medium">
@@ -577,15 +577,15 @@ const getScheduleForDay = (day: string) => {
           {!isLoadingSchedule && (
             <div className="space-y-4 mb-8">
               <div>
-                <h2 className="text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent mb-2">
+                <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent mb-2">
                   Class Schedule
                 </h2>
                 <p className="text-sm text-muted-foreground mb-4">Viewing: {selectedDateLabel}</p>
                 <div className="flex gap-3 items-center flex-wrap">
-                  <Button variant="outline" className="gap-2" onClick={() => setSelectedDate(formatDateForInput(new Date()))}>
+                  <Button variant="outline" className="gap-2 w-full sm:w-auto" onClick={() => setSelectedDate(formatDateForInput(new Date()))}>
                     Today
                   </Button>
-                  <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value || formatDateForInput(new Date()))} className="w-44" />
+                  <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value || formatDateForInput(new Date()))} className="w-full sm:w-44" />
                 </div>
               </div>
             </div>
@@ -618,14 +618,14 @@ const getScheduleForDay = (day: string) => {
                   const isEditing = editingNoteId === cls.id
                   return (
                     <Card key={cls.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-                      <div className="p-6 pb-2">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-3">
-                              <h3 className="text-xl font-bold">{cls.subject}</h3>
+                      <div className="p-4 sm:p-6 pb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3">
+                              <h3 className="text-lg sm:text-xl font-bold">{cls.subject}</h3>
                               <Badge className={`${getTypeColor(cls.type)} px-3 py-1`}>{cls.type.toUpperCase()}</Badge>
                             </div>
-                            <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-sm text-muted-foreground">
                               <div className="flex items-center gap-2">
                                 <Clock className="w-4 h-4" />
                                 <span className="font-medium">{cls.time}</span>
@@ -636,7 +636,7 @@ const getScheduleForDay = (day: string) => {
                               </div>
                             </div>
                           </div>
-                          <div className="flex flex-col items-end gap-2 text-sm font-medium text-primary shrink-0">
+                          <div className="flex flex-row sm:flex-col items-start sm:items-end gap-2 text-sm font-medium text-primary shrink-0">
                             <span>{getCountdownText(cls.time, cls.day)}</span>
                           </div>
                         </div>
