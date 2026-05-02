@@ -1,8 +1,7 @@
 "use client"
 
 import type React from "react"
-
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -10,19 +9,17 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, Clock, MapPin, Utensils, GraduationCap, Moon, Sun, Notebook, MoreVertical, X } from "lucide-react"
+import { Calendar, Clock, MapPin, GraduationCap, Moon, Sun, Notebook, MoreVertical, X } from "lucide-react"
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const BATCH_OPTIONS = ["2022", "2023", "2024", "2025"]
 const SCHOOL_OPTIONS = ["SEECS", "SMME", "S3H", "NBS", "NSHS", "IGIS", "ASAB"]
 const SEMESTER_OPTIONS = Array.from({ length: 8 }, (_, i) => String(i + 1))
-
-const getISOWeek = (date: Date) => {
-  const tmp = new Date(date.getTime())
-  tmp.setHours(0, 0, 0, 0)
-  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7))
-  const week1 = new Date(tmp.getFullYear(), 0, 4)
-  return 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)
+const formatDateForInput = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
 }
 
 interface UserProfile {
@@ -41,22 +38,8 @@ interface ScheduleItem {
   location: string
   type: "lecture" | "lab" | "tutorial" | "NA"
   day: string
-}
-
-interface MessMenuItem {
-  id: string
-  meal: "breakfast" | "lunch" | "dinner"
-  items: string[]
-  time: string
-}
-
-interface ExamItem {
-  date: string
-  time: string
-  subject: string
   major: string
-  batch: string
-  venue?: string
+  batchNumber: string
 }
 
 interface ClassNote {
@@ -64,29 +47,125 @@ interface ClassNote {
   note: string
 }
 
+const SECTION_BASED_MAJORS = ["Electrical Engineering", "Computer Science", "Mechanical Engineering"] as const
+const DAY_ALIASES: Record<string, string> = {
+  monday: "Monday", mon: "Monday", mo: "Monday",
+  tuesday: "Tuesday", tue: "Tuesday", tues: "Tuesday", tu: "Tuesday",
+  wednesday: "Wednesday", wed: "Wednesday", we: "Wednesday",
+  thursday: "Thursday", thu: "Thursday", thur: "Thursday", thurs: "Thursday", th: "Thursday",
+  friday: "Friday", fri: "Friday", fr: "Friday",
+  saturday: "Saturday", sat: "Saturday", sa: "Saturday",
+  sunday: "Sunday", sun: "Sunday", su: "Sunday",
+}
+
+const normalizeKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "")
+const isSectionBasedMajor = (major: string) => SECTION_BASED_MAJORS.some((sectionMajor) => normalizeKey(sectionMajor) === normalizeKey(major))
+const getRowValue = (row: Record<string, unknown>, aliases: string[]) => {
+  const rowEntries = Object.entries(row)
+  for (const alias of aliases) {
+    const normalizedAlias = normalizeKey(alias)
+    const match = rowEntries.find(([key]) => normalizeKey(key) === normalizedAlias)
+    if (match && match[1] != null && String(match[1]).trim() !== "") {
+      return String(match[1]).trim()
+    }
+  }
+  return ""
+}
+
+const normalizeDay = (value: string, fallbackSheetName?: string) => {
+  const raw = `${value || ""} ${fallbackSheetName || ""}`.toLowerCase()
+  for (const [alias, normalized] of Object.entries(DAY_ALIASES)) {
+    if (raw.includes(alias)) return normalized
+  }
+  return ""
+}
+
+const normalizeType = (value: string): ScheduleItem["type"] => {
+  const normalized = value.toLowerCase()
+  if (normalized.includes("lab")) return "lab"
+  if (normalized.includes("tutorial")) return "tutorial"
+  if (normalized === "na" || normalized.includes("n/a")) return "NA"
+  return "lecture"
+}
+const shouldIgnoreSubject = (value: string) => {
+  const normalized = value.toLowerCase().trim()
+  if (!normalized) return true
+  return normalized === "free" || normalized.includes("lunch") || normalized.includes("break") || normalized.includes("prayer")
+}
+
+const normalizeSection = (value: string) => {
+  const cleaned = value.replace(/section/gi, "").trim().toUpperCase()
+  const match = cleaned.match(/\b([A-Z])\b/)
+  return match ? match[1] : cleaned
+}
+
+const inferMajorFromSheetName = (sheetName: string) => {
+  const normalized = normalizeKey(sheetName)
+  const majors = ["Electrical Engineering", "Software Engineering", "Computer Science", "Artificial Intelligence", "Data Science"]
+  const known = majors.find(major => normalized.includes(normalizeKey(major)))
+  if (known) return known
+  const raw = sheetName.toLowerCase()
+  const codeMatch = raw.match(/(?:^|[-_ ])([a-z]{2,})(?=\d|[-_ ]|$)/)
+  const code = codeMatch?.[1]?.toUpperCase() || ""
+  if (code === "CS") return "Computer Science"
+  if (code === "SE") return "Software Engineering"
+  if (code === "EE") return "Electrical Engineering"
+  if (code === "AI") return "Artificial Intelligence"
+  if (code === "DS") return "Data Science"
+  if (code) return code
+  return ""
+}
+
+const inferSectionFromSheetName = (sheetName: string) => {
+  const explicit = sheetName.match(/section\s*([a-z])/i)
+  if (explicit?.[1]) return explicit[1].toUpperCase()
+  const suffix = sheetName.match(/[_-]([a-e])$/i)
+  if (suffix?.[1]) return suffix[1].toUpperCase()
+  const separated = sheetName.match(/(?:^|[_ -])([a-e])(?:[_ -]|$)/i)
+  return separated?.[1]?.toUpperCase() || ""
+}
+const inferBatchFromSheetName = (sheetName: string) => {
+  const fullYear = sheetName.match(/\b(20\d{2})\b/)
+  if (fullYear?.[1]) return fullYear[1]
+  const shortYear = sheetName.match(/2k(\d{2})/i)
+  if (shortYear?.[1]) return `20${shortYear[1]}`
+  return ""
+}
+
 export default function UniApp() {
   const [isOnboarded, setIsOnboarded] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile>({
-    batchNumber: "",
-    school: "",
-    major: "",
-    semester: "",
-    hostelResident: false,
-    section: "",
+    batchNumber: "", school: "", major: "", semester: "", hostelResident: false, section: ""
   })
 
-  const [selectedDay, setSelectedDay] = useState(new Date().toLocaleDateString("en-US", { weekday: "long" }))
-  const [selectedMessDay, setSelectedMessDay] = useState(new Date().toLocaleDateString("en-US", { weekday: "long" }))
-
+  const [selectedDate, setSelectedDate] = useState(() => formatDateForInput(new Date()))
   const [darkMode, setDarkMode] = useState(false)
-  // CHANGE: add state for countdown updates
-  const [, setCountdownUpdate] = useState(0)
   const [showSidebar, setShowSidebar] = useState(false)
-
   const [notes, setNotes] = useState<ClassNote[]>([])
-
+  const [scheduleByMajorSection, setScheduleByMajorSection] = useState<Record<string, Record<string, ScheduleItem[]>>>({})
+  const [scheduleByMajorNoSection, setScheduleByMajorNoSection] = useState<Record<string, ScheduleItem[]>>({})
+  const [majorsFromWorkbook, setMajorsFromWorkbook] = useState<string[]>([])
+  const [isLoadingSchedule, setIsLoadingSchedule] = useState(true)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const noteInputRef = useRef<HTMLInputElement | null>(null)
+  const availableMajors = useMemo(
+    () => [...new Set([...majorsFromWorkbook, ...Object.keys(scheduleByMajorSection), ...Object.keys(scheduleByMajorNoSection)])].filter(Boolean).sort(),
+    [majorsFromWorkbook, scheduleByMajorSection, scheduleByMajorNoSection],
+  )
+  const selectedDateObject = useMemo(() => {
+    const parsed = new Date(`${selectedDate}T00:00:00`)
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed
+  }, [selectedDate])
+  const selectedDay = useMemo(
+    () => selectedDateObject.toLocaleDateString("en-US", { weekday: "long" }),
+    [selectedDateObject],
+  )
+  const selectedDateLabel = useMemo(
+    () => selectedDateObject.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }),
+    [selectedDateObject],
+  )
 
+  // Load profile/notes/darkmode
   useEffect(() => {
     const savedProfile = localStorage.getItem("uniapp-profile")
     if (savedProfile) {
@@ -102,176 +181,190 @@ export default function UniApp() {
     }
 
     const savedNotes = localStorage.getItem("uniapp-notes")
-    if (savedNotes) {
-      setNotes(JSON.parse(savedNotes))
-    }
+    if (savedNotes) setNotes(JSON.parse(savedNotes))
   }, [])
 
-  // CHANGE: add countdown timer effect that updates every second
+  // Save notes
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCountdownUpdate((prev) => prev + 1)
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
-    // FIX: Correctly save notes to localStorage
     localStorage.setItem("uniapp-notes", JSON.stringify(notes))
   }, [notes])
 
+  useEffect(() => {
+    if (!isOnboarded) return
+    localStorage.setItem("uniapp-profile", JSON.stringify(userProfile))
+  }, [isOnboarded, userProfile])
+
+  // Load XLSX schedule
+  useEffect(() => {
+    const loadXlsxSchedule = async () => {
+      try {
+        setIsLoadingSchedule(true)
+        const [{ read, utils }, scheduleRes] = await Promise.all([import("xlsx"), fetch("/output6.xlsx")])
+        if (!scheduleRes.ok) throw new Error("XLSX not found")
+        
+        const workbook = read(await scheduleRes.arrayBuffer(), { type: "array" })
+        const sectionedMap: Record<string, Record<string, ScheduleItem[]>> = {}
+        const noSectionMap: Record<string, ScheduleItem[]> = {}
+        const majorsSet = new Set<string>()
+        let generatedId = 1
+
+        workbook.SheetNames.forEach((sheetName) => {
+          const sheet = workbook.Sheets[sheetName]
+          const rows = utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" })
+          const inferredMajor = inferMajorFromSheetName(sheetName)
+          if (inferredMajor) majorsSet.add(inferredMajor)
+          const inferredSection = inferSectionFromSheetName(sheetName)
+          const inferredBatch = inferBatchFromSheetName(sheetName)
+
+          rows.forEach((row) => {
+            const rowValues = Object.values(row).map((value) => String(value || "").trim()).filter(Boolean)
+            const major = inferredMajor || getRowValue(row, ["major", "department", "program", "discipline", "degree"])
+            if (!major) return
+
+            const section = normalizeSection(inferredSection || getRowValue(row, ["section", "group", "sec"]))
+            const subject = getRowValue(row, ["subject", "course", "course title", "course_name", "course code", "title", "module"])
+            const location = getRowValue(row, ["location", "venue", "room", "classroom", "hall"]) || "TBD"
+            const day = normalizeDay(getRowValue(row, ["day", "weekday"]), sheetName) || rowValues.map((value) => normalizeDay(value)).find(Boolean) || ""
+            const time = getRowValue(row, ["time", "slot", "timing", "time slot", "start-end"]) || rowValues.find((v) => /\d{1,2}:\d{2}.*[-–].*\d{1,2}:\d{2}/i.test(v)) || ""
+            const type = normalizeType(getRowValue(row, ["type", "class type", "mode"]))
+
+            const resolvedSubject = subject || rowValues.find((v) => v.length > 3 && !normalizeDay(v) && !/\d{1,2}:\d{2}/.test(v)) || ""
+            if (!resolvedSubject || !day || !time || shouldIgnoreSubject(resolvedSubject)) return
+
+            const item: ScheduleItem = { id: `xlsx-${generatedId++}`, subject: resolvedSubject, time, location, type, day, major, batchNumber: inferredBatch }
+
+            if (section) {
+              if (!sectionedMap[major]) sectionedMap[major!] = {}
+              if (!sectionedMap[major][section]) sectionedMap[major][section] = []
+              sectionedMap[major][section].push(item)
+            } else if (noSectionMap[major]) {
+              noSectionMap[major].push(item)
+            } else {
+              noSectionMap[major!] = [item]
+            }
+          })
+        })
+
+        setScheduleByMajorSection(sectionedMap)
+        setScheduleByMajorNoSection(noSectionMap)
+        setMajorsFromWorkbook(Array.from(majorsSet).sort())
+      } catch (error) {
+        console.error("Error loading schedule XLSX:", error)
+      } finally {
+        setIsLoadingSchedule(false)
+      }
+    }
+
+    loadXlsxSchedule()
+  }, [])
+
+
   const handleOnboardingSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    localStorage.setItem("uniapp-profile", JSON.stringify(userProfile))
+    // Normalize major casing for better matching
+    const normalizedProfile = {
+      ...userProfile,
+      major: userProfile.major.trim() // Clean input
+    }
+    localStorage.setItem("uniapp-profile", JSON.stringify(normalizedProfile))
+    setUserProfile(normalizedProfile)
     setIsOnboarded(true)
   }
 
-  const handleReset = () => {
-    localStorage.removeItem("uniapp-profile")
-    localStorage.removeItem("uniapp-dark-mode")
-    localStorage.removeItem("uniapp-notes")
-    setIsOnboarded(false)
-    setUserProfile({
-      batchNumber: "",
-      school: "",
-      major: "",
-      semester: "",
-      hostelResident: false,
-      section: "",
-    })
-    setDarkMode(false)
-    document.documentElement.classList.remove("dark")
-    setNotes([])
-  }
 
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode
     setDarkMode(newDarkMode)
     localStorage.setItem("uniapp-dark-mode", JSON.stringify(newDarkMode))
-    if (newDarkMode) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
+    document.documentElement.classList.toggle("dark", newDarkMode)
   }
 
-  const getNoteForClass = (scheduleId: string): string => {
-    return notes.find((n) => n.scheduleId === scheduleId)?.note || ""
-  }
+  const notesByScheduleId = useMemo(() => 
+    notes.reduce<Record<string, string>>((acc, note) => { acc[note.scheduleId] = note.note; return acc }, {}), 
+  [notes])
+
+  const getNoteForClass = (scheduleId: string) => notesByScheduleId[scheduleId] || ""
 
   const saveNote = (scheduleId: string, noteText: string) => {
-    setNotes((prevNotes) => {
-      const existingIndex = prevNotes.findIndex((n) => n.scheduleId === scheduleId)
-      if (existingIndex >= 0) {
-        const updated = [...prevNotes]
-        updated[existingIndex] = { scheduleId, note: noteText }
-        return updated
+    setNotes(prev => {
+      const existing = prev.find(n => n.scheduleId === scheduleId)
+      if (existing) {
+        return prev.map(n => n.scheduleId === scheduleId ? { scheduleId, note: noteText } : n)
       }
-      return [...prevNotes, { scheduleId, note: noteText }]
+      return [...prev, { scheduleId, note: noteText }]
     })
     setEditingNoteId(null)
   }
 
-  // CHANGE: add function to calculate time until class starts
-  const getCountdownText = (timeStr: string, classDay: string): string => {
+  const getCountdownText = (timeStr: string, classDay: string) => {
     try {
       const now = new Date()
-      const currentDayOfWeek = now.toLocaleDateString("en-US", { weekday: "long" })
-      const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-      const currentDayIndex = DAYS.indexOf(currentDayOfWeek)
-      const classDayIndex = DAYS.indexOf(classDay)
+      const today = now.toLocaleDateString("en-US", { weekday: "long" })
+      const todayIdx = WEEKDAY_NAMES.indexOf(today)
+      const dayIdx = WEEKDAY_NAMES.indexOf(classDay)
+      
+      if (dayIdx < todayIdx) return "Completed"
+      if (dayIdx > todayIdx) return "Upcoming"
 
-      // If the class is on a past day this week, it's already happened
-      if (classDayIndex < currentDayIndex) {
-        return "Completed"
-      }
+      const [startTime] = timeStr.split(" - ")
+      const [time, period] = startTime.split(" ")
+      const [hours, minutes] = time.split(':').map(Number)
+      let hour24 = period === "PM" && hours !== 12 ? hours + 12 : period === "AM" && hours === 12 ? 0 : hours
 
-      // If it's today, compare with current time
-      if (classDayIndex === currentDayIndex) {
-        const [startTime] = timeStr.split(" - ")
-        const [time, period] = startTime.split(" ")
-        const [hours, minutes] = time.split(":").map(Number)
+      const classTime = new Date()
+      classTime.setHours(hour24, minutes, 0, 0)
 
-        let hour24 = hours
-        if (period === "PM" && hours !== 12) hour24 = hours + 12
-        if (period === "AM" && hours === 12) hour24 = 0
+      const diffMs = classTime.getTime() - now.getTime()
+      if (diffMs < 0) return "In progress"
 
-        const classDate = new Date()
-        classDate.setHours(hour24, minutes, 0, 0)
-
-        if (classDate < now) {
-          return "In progress or ended"
-        }
-
-        const diff = classDate.getTime() - now.getTime()
-        const hrs = Math.floor(diff / (1000 * 60 * 60))
-        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-
-        if (hrs > 0) {
-          return `in ${hrs}h ${mins}m`
-        } else if (mins > 0) {
-          return `in ${mins}m`
-        } else {
-          return "Starting now"
-        }
-      } else {
-        // Future day this week
-        return "Upcoming"
-      }
+      const hoursLeft = Math.floor(diffMs / 3600000)
+      const minsLeft = Math.floor((diffMs % 3600000) / 60000)
+      return hoursLeft > 0 ? `in ${hoursLeft}h ${minsLeft}m` : minsLeft > 0 ? `in ${minsLeft}m` : "Now"
     } catch {
       return ""
     }
   }
 
   const getTypeColor = (type: ScheduleItem["type"]) => {
-    switch (type) {
-      case "lecture":
-        return "bg-primary text-primary-foreground"
-      case "lab":
-        return "bg-secondary text-secondary-foreground"
-      case "tutorial":
-        return "bg-accent text-accent-foreground"
-      case "NA":
-        return "bg-destructive text-destructive-foreground"
-      default:
-        return "bg-muted text-muted-foreground"
+    const colors: Record<ScheduleItem["type"], string> = {
+      lecture: "bg-primary text-primary-foreground",
+      lab: "bg-secondary text-secondary-foreground", 
+      tutorial: "bg-accent text-accent-foreground",
+      NA: "bg-destructive text-destructive-foreground"
     }
+    return colors[type] || "bg-muted text-muted-foreground"
   }
 
-  const getMealIcon = (meal: string) => {
-    switch (meal) {
-      case "breakfast":
-        return "🌅"
-      case "lunch":
-        return "☀️"
-      case "dinner":
-        return "🌙"
-      default:
-        return "🍽️"
-    }
-  }
 
-  const getScheduleForDay = (day: string) => {
-    if (
-      (userProfile.major === "Electrical Engineering" ||
-        userProfile.major === "Computer Science" ||
-        userProfile.major === "Mechanical Engineering") &&
-      userProfile.section
-    ) {
-      const majorSchedule = scheduleData[userProfile.major as keyof typeof scheduleData]
-      if (majorSchedule) {
-        const sectionSchedule = majorSchedule[userProfile.section as keyof typeof majorSchedule]
-        return sectionSchedule?.filter((item) => item.day === day) || []
+const getScheduleForDay = (day: string) => {
+  const normalizedUserMajor = normalizeKey(userProfile.major)
+  const majorKey = availableMajors.find(k => normalizeKey(k) === normalizedUserMajor) || userProfile.major
+  const matchesSelectedFilters = (item: ScheduleItem) => {
+    const matchesMajor = normalizeKey(item.major) === normalizeKey(majorKey as string)
+    const matchesBatch = !userProfile.batchNumber || !item.batchNumber || item.batchNumber === userProfile.batchNumber
+    return item.day === day && matchesMajor && matchesBatch
+  }
+  const majorSchedule = scheduleByMajorSection[majorKey as string]
+
+  if (majorSchedule) {
+    if (isSectionBasedMajor(majorKey as string)) {
+      if (!userProfile.section) return []
+      const sectionKey = Object.keys(majorSchedule).find(k => normalizeSection(k) === normalizeSection(userProfile.section || ""))
+      if (sectionKey && majorSchedule[sectionKey]) {
+        return majorSchedule[sectionKey].filter(matchesSelectedFilters)
       }
+      return []
     }
-
-    const simpleMajorSchedule = scheduleDataNoSection[userProfile.major as keyof typeof scheduleDataNoSection]
-    if (simpleMajorSchedule) {
-      return simpleMajorSchedule.filter((item) => item.day === day)
-    }
-
-    return []
+    return Object.values(majorSchedule).flat().filter(matchesSelectedFilters)
   }
+
+  const noSectionSchedule = scheduleByMajorNoSection[majorKey as string]
+  return noSectionSchedule ? noSectionSchedule.filter(matchesSelectedFilters) : []
+}
+
+
+  const todaysClasses = getScheduleForDay(new Date().toLocaleDateString("en-US", { weekday: "long" }))
+  const selectedDaySchedule = getScheduleForDay(selectedDay)
 
   if (!isOnboarded) {
     return (
@@ -282,144 +375,71 @@ export default function UniApp() {
               <GraduationCap className="w-8 h-8 text-primary-foreground" />
             </div>
             <CardTitle className="text-2xl font-heading">Welcome to UniApp</CardTitle>
-            <p className="text-muted-foreground">Let's set up your profile to get started</p>
+            <p className="text-muted-foreground">Set up your profile to get started</p>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleOnboardingSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="batch">Batch Number</Label>
-                <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, batchNumber: value }))}>
+                <Label>Batch</Label>
+                <Select onValueChange={(v) => setUserProfile(p => ({ ...p, batchNumber: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select batch" /></SelectTrigger>
+                  <SelectContent>{BATCH_OPTIONS.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>School</Label>
+                <Select onValueChange={(v) => setUserProfile(p => ({ ...p, school: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select school" /></SelectTrigger>
+                  <SelectContent>{SCHOOL_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Major</Label>
+                <Select value={userProfile.major} onValueChange={(major) => setUserProfile(p => ({ ...p, major }))}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select your batch" />
+                    <SelectValue placeholder={isLoadingSchedule ? "Loading majors..." : "Select major"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {BATCH_OPTIONS.map((batch) => (
-                      <SelectItem key={batch} value={batch}>
-                        {batch}
-                      </SelectItem>
+                    {availableMajors.map((major) => (
+                      <SelectItem key={major} value={major}>{major}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="school">School/Department</Label>
-                <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, school: value }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select your school" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SCHOOL_OPTIONS.map((school) => (
-                      <SelectItem key={school} value={school}>
-                        {school}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="major">Major</Label>
-                {userProfile.school === "SEECS" ? (
-                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your major" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Electrical Engineering">Electrical Engineering</SelectItem>
-                      <SelectItem value="Software Engineering">Software Engineering</SelectItem>
-                      <SelectItem value="Computer Science">Computer Science</SelectItem>
-                      <SelectItem value="Artificial Intelligence">Artificial Intelligence</SelectItem>
-                      <SelectItem value="Data Science">Data Science</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : userProfile.school === "SMME" ? (
-                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your major" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Mechanical Engineering">Mechanical Engineering</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : userProfile.school === "S3H" ? (
-                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, major: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your major" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Mass Communication">Mass Communication</SelectItem>
-                      <SelectItem value="Economics">Economics</SelectItem>
-                      <SelectItem value="Public Ad">Public Ad</SelectItem>
-                      <SelectItem value="Psychology">Psychology</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    id="major"
-                    placeholder="e.g., Computer Science"
-                    value={userProfile.major}
-                    onChange={(e) => setUserProfile((prev) => ({ ...prev, major: e.target.value }))}
-                    required
-                  />
+                {availableMajors.length > 0 && (
+                  <p className="text-xs text-muted-foreground">{availableMajors.length} majors found in output6.xlsx</p>
                 )}
               </div>
-
-              {(userProfile.major === "Electrical Engineering" ||
-                userProfile.major === "Computer Science" ||
-                userProfile.major === "Mechanical Engineering") && (
+              {(isSectionBasedMajor(userProfile.major) && (
                 <div className="space-y-2">
-                  <Label htmlFor="section">Section</Label>
-                  <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, section: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your section" />
-                    </SelectTrigger>
+                  <Label>Section</Label>
+                  <Select onValueChange={(v) => setUserProfile(p => ({ ...p, section: v }))}>
+                    <SelectTrigger><SelectValue placeholder="A/B/C" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="A">A</SelectItem>
-                      <SelectItem value="B">B</SelectItem>
-                      <SelectItem value="C">C</SelectItem>
-                      {userProfile.major === "Electrical Engineering" && <SelectItem value="D">D</SelectItem>}
-                      {userProfile.major === "Computer Science" && <SelectItem value="E">E</SelectItem>}
+                      <SelectItem value="A">A</SelectItem><SelectItem value="B">B</SelectItem><SelectItem value="C">C</SelectItem>
+                      {userProfile.major.includes("Electrical") && <SelectItem value="D">D</SelectItem>}
+                      {userProfile.major.includes("Computer") && <SelectItem value="E">E</SelectItem>}
                     </SelectContent>
                   </Select>
                 </div>
-              )}
-
+              ))}
               <div className="space-y-2">
-                <Label htmlFor="semester">Current Semester</Label>
-                <Select onValueChange={(value) => setUserProfile((prev) => ({ ...prev, semester: value }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select semester" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SEMESTER_OPTIONS.map((sem) => (
-                      <SelectItem key={sem} value={sem}>
-                        {sem}
-                        {sem === "1" ? "st" : sem === "2" ? "nd" : sem === "3" ? "rd" : "th"} Semester
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                <Label>Semester</Label>
+                <Select onValueChange={(v) => setUserProfile(p => ({ ...p, semester: v }))}>
+                  <SelectTrigger><SelectValue placeholder="1st Semester" /></SelectTrigger>
+                  <SelectContent>{SEMESTER_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}{s==='1'?'st':s==='2'?'nd':s==='3'?'rd':'th'} Semester</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-2">
                 <Label>Accommodation</Label>
-                <Select
-                  onValueChange={(value) => setUserProfile((prev) => ({ ...prev, hostelResident: value === "hostel" }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select accommodation" />
-                  </SelectTrigger>
+                <Select onValueChange={(v) => setUserProfile(p => ({ ...p, hostelResident: v === "hostel" }))}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="hostel">Hostel Resident</SelectItem>
-                    <SelectItem value="day-scholar">Day Scholar</SelectItem>
+                    <SelectItem value="hostel">Hostel</SelectItem>
+                    <SelectItem value="dayscholar">Day Scholar</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-
-              <Button type="submit" className="w-full">
-                Get Started
-              </Button>
+              <Button type="submit" className="w-full">Get Started ✨</Button>
             </form>
           </CardContent>
         </Card>
@@ -427,1713 +447,248 @@ export default function UniApp() {
     )
   }
 
-  const scheduleData = {
-    "Mechanical Engineering": {
-      A: [
-        // Monday
-        {
-          id: "ME-A1",
-          subject: "Ideology and Constitution of Pakistan (HU-127)",
-          time: "09:00 - 09:50",
-          location: "CR# 207",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "ME-A2",
-          subject: "Ideology and Constitution of Pakistan (HU-127)",
-          time: "10:00 - 10:50",
-          location: "CR# 207",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "ME-A3",
-          subject: "Complex Variables and Transforms (MATH-232)",
-          time: "11:00 - 11:50",
-          location: "CR# 207",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "ME-A4",
-          subject: "Complex Variables and Transforms (MATH-232)",
-          time: "12:00 - 12:50",
-          location: "CR# 207",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "ME-A5",
-          subject: "Civics & Community Engagement (CCE-401)",
-          time: "15:00 - 16:50",
-          location: "SMME Seminar Hall",
-          type: "lecture",
-          day: "Monday",
-        },
-        // Tuesday
-        {
-          id: "ME-A6",
-          subject: "Electrical Engineering (EE-117)",
-          time: "09:00 - 09:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "ME-A7",
-          subject: "Electrical Engineering (EE-117)",
-          time: "10:00 - 10:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "ME-A8",
-          subject: "Complex Variables and Transforms (MATH-232)",
-          time: "11:00 - 11:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "ME-A9",
-          subject: "Fluid Mechanics-I (ME-230)",
-          time: "12:00 - 12:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "ME-A10",
-          subject: "SAS Session / Faculty Meeting",
-          time: "14:00 - 15:50",
-          location: "-",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "ME-A11",
-          subject: "Library / Make-up Class",
-          time: "16:00 - 16:50",
-          location: "Library",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        // Wednesday
-        {
-          id: "ME-A12",
-          subject: "Library / Make-up Class",
-          time: "09:00 - 09:50",
-          location: "Library/Makeup",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "ME-A13",
-          subject: "Civics & Community Engagement (CCE-401)",
-          time: "10:00 - 10:50",
-          location: "CR# 206",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "ME-A14",
-          subject: "Thermodynamics-II (ME-217)",
-          time: "11:00 - 11:50",
-          location: "CR# 207 (West Wing)",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "ME-A15",
-          subject: "Thermodynamics-II (ME-217)",
-          time: "12:00 - 12:50",
-          location: "CR# 207 (West Wing)",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "ME-A16",
-          subject: "Mechanics of Materials-I (ME-210)",
-          time: "14:00 - 14:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "ME-A17",
-          subject: "Library / Make-up Class",
-          time: "15:00 - 15:50",
-          location: "Library",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        // Thursday
-        {
-          id: "ME-A18",
-          subject: "Thermodynamics Lab (ME-232)",
-          time: "09:00 - 11:50",
-          location: "Room No 202",
-          type: "lab",
-          day: "Thursday",
-        },
-        {
-          id: "ME-A19",
-          subject: "Fluid Mechanics-I (ME-230)",
-          time: "14:00 - 14:50",
-          location: "CR# 414",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "ME-A20",
-          subject: "Fluid Mechanics-I (ME-230)",
-          time: "15:00 - 15:50",
-          location: "CR# 414",
-          type: "lecture",
-          day: "Thursday",
-        },
-        // Friday
-        {
-          id: "ME-A21",
-          subject: "Mechanics of Materials-I (ME-210)",
-          time: "10:00 - 10:50",
-          location: "CR# 408",
-          type: "lecture",
-          day: "Friday",
-        },
-        {
-          id: "ME-A22",
-          subject: "Mechanics of Materials-I (ME-210)",
-          time: "11:00 - 11:50",
-          location: "CR# 408",
-          type: "lecture",
-          day: "Friday",
-        },
-        {
-          id: "ME-A23",
-          subject: "Library / Make-up Class",
-          time: "12:00 - 12:50",
-          location: "Library",
-          type: "lecture",
-          day: "Friday",
-        },
-      ],
-      B: [
-        // Monday
-        {
-          id: "ME-B1",
-          subject: "Ideology and Constitution of Pakistan (HU-127)",
-          time: "11:00 - 11:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "ME-B2",
-          subject: "Ideology and Constitution of Pakistan (HU-127)",
-          time: "12:00 - 12:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "ME-B3",
-          subject: "Civics & Community Engagement (CCE-401)",
-          time: "14:00 - 16:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Monday",
-        },
-
-        //Tuesday
-        {
-          id: "ME-B16",
-          subject: "Civics and Community Engagement (CCE-401)",
-          time: "10:00 - 10:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "ME-B4",
-          subject: "Fluid Mechanics-I (ME-230)",
-          time: "11:00 - 11:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "ME-B14",
-          subject: "SAS Session / Faculty Meeting",
-          time: "14:00 - 15:50",
-          location: "-",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        // Wednesday
-        {
-          id: "ME-B13",
-          subject: "Complex Variable and Transforms (MATH-232)",
-          time: "09:00 - 10:50",
-          location: "Room No 202",
-          type: "lab",
-          day: "Wednesday",
-        },
-        {
-          id: "ME-B15",
-          subject: "Mechanics of Materials-I (ME-210)",
-          time: "11:00 - 12:50",
-          location: "Room no 315",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "ME-B20",
-          subject: "Electrical Engineering (EE-117)",
-          time: "14:00 - 15:50",
-          location: "Room no 315",
-          type: "lecture",
-          day: "Wednesday",
-        },
-
-        // Thursday
-        {
-          id: "ME-B5",
-          subject: "Electrical Engineering (EE-117)",
-          time: "09:00 - 09:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "ME-B6",
-          subject: "Electrical Engineering (EE-117)",
-          time: "10:00 - 10:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "ME-B7",
-          subject: "Thermodynamics-II (ME-217)",
-          time: "11:00 - 11:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "ME-B8",
-          subject: "Thermodynamics-II (ME-217)",
-          time: "12:00 - 12:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "ME-B9",
-          subject: "Mechanics of Materials-I (ME-210)",
-          time: "14:00 - 14:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Thursday",
-        },
-
-        //Friday
-        {
-          id: "ME-B10",
-          subject: "Tutorial - Electrical Engineering (EE-117)",
-          time: "09:00 - 09:50",
-          location: "CR# 307",
-          type: "tutorial",
-          day: "Friday",
-        },
-        {
-          id: "ME-B11",
-          subject: "Complex Variables and Transforms (MATH-232)",
-          time: "10:00 - 10:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Friday",
-        },
-        {
-          id: "ME-B12",
-          subject: "Mechanics of Materials-I (ME-210)",
-          time: "12:00 - 12:50",
-          location: "CR# 308",
-          type: "lecture",
-          day: "Friday",
-        },
-      ],
-      C: [
-        // Monday
-        {
-          id: "ME-C1",
-          subject: "Fluid Mechanics-I (ME-230)",
-          time: "11:00 - 11:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "ME-C2",
-          subject: "Fluid Mechanics-I (ME-230)",
-          time: "12:00 - 12:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Monday",
-        },
-        // Tuesday
-        {
-          id: "ME-C3",
-          subject: "Complex Variables and Transforms (MATH-232)",
-          time: "09:00 - 09:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "ME-C4",
-          subject: "Mechanics of Materials-I (ME-210)",
-          time: "10:00 - 10:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "ME-C13",
-          subject: "SAS Session / Faculty Meeting",
-          time: "14:00 - 14:50",
-          location: "-",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        // Wednesday
-        {
-          id: "ME-C5",
-          subject: "Electrical Engineering (EE-117)",
-          time: "11:00 - 11:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "ME-C6",
-          subject: "Electrical Engineering (EE-117)",
-          time: "12:00 - 12:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        // Thursday
-        {
-          id: "ME-C7",
-          subject: "Tutorial - Electrical Engineering (EE-117)",
-          time: "09:00 - 09:50",
-          location: "CR# 414",
-          type: "tutorial",
-          day: "Thursday",
-        },
-        {
-          id: "ME-C8",
-          subject: "Ideology and Constitution of Pakistan (HU-127)",
-          time: "10:00 - 10:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "ME-C9",
-          subject: "Civics & Community Engagement (CCE-401)",
-          time: "11:00 - 11:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "ME-C10",
-          subject: "Thermodynamics-II (ME-217)",
-          time: "14:00 - 14:50",
-          location: "CR# 315",
-          type: "lecture",
-          day: "Thursday",
-        },
-        // Friday
-        {
-          id: "ME-C11",
-          subject: "Thermodynamics Lab (ME-232)",
-          time: "09:00 - 11:50",
-          location: "Room No 202",
-          type: "lab",
-          day: "Friday",
-        },
-        {
-          id: "ME-C12",
-          subject: "Library / Make-up Class",
-          time: "Various",
-          location: "Library",
-          type: "lecture",
-          day: "Throughout Week",
-        },
-      ],
-    },
-    "Electrical Engineering": {
-      A: [
-        // Monday
-        {
-          id: "1",
-          subject: "Electrical Machines",
-          time: "11:00 - 11:50",
-          location: "CR-12 (UG Block)",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "2",
-          subject: "Instrumentation and Measurements",
-          time: "14:00 - 16:50",
-          location: "Control System Lab (UG Block)",
-          type: "lab",
-          day: "Monday",
-        },
-        // Tuesday
-        {
-          id: "3",
-          subject: "Electrical Machines",
-          time: "11:00 - 11:50",
-          location: "CR-04 (UG Block)",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "4",
-          subject: "Probability and Statistics",
-          time: "14:00 - 14:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "5",
-          subject: "Instrumentation and Measurements",
-          time: "15:00 - 15:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "6",
-          subject: "Instrumentation and Measurements",
-          time: "16:00 - 16:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        // Wednesday
-        {
-          id: "7",
-          subject: "Electronic Circuit Design",
-          time: "10:00 - 10:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "8",
-          subject: "Electronic Circuit Design",
-          time: "11:00 - 11:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "9",
-          subject: "Signals and Systems",
-          time: "12:00 - 12:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "10",
-          subject: "Electrical Machines",
-          time: "14:00 - 16:50",
-          location: "EMS Lab (UG Block)",
-          type: "lab",
-          day: "Wednesday",
-        },
-        // Thursday
-        {
-          id: "11",
-          subject: "Electrical Machines",
-          time: "09:00 - 09:50",
-          location: "CR-13 (UG Block)",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "12",
-          subject: "Signals and Systems",
-          time: "10:00 - 12:50",
-          location: "DSP & Comm Lab (UG Block)",
-          type: "lab",
-          day: "Thursday",
-        },
-        {
-          id: "13",
-          subject: "Electronic Circuit Design",
-          time: "14:00 - 14:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "14",
-          subject: "Probability and Statistics",
-          time: "15:00 - 15:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "15",
-          subject: "Instrumentation and Measurements",
-          time: "16:00 - 16:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Thursday",
-        },
-        // Friday
-        {
-          id: "16",
-          subject: "Signals and Systems",
-          time: "09:00 - 09:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Friday",
-        },
-        {
-          id: "17",
-          subject: "Signals and Systems",
-          time: "10:00 - 10:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Friday",
-        },
-        {
-          id: "18",
-          subject: "Probability and Statistics",
-          time: "11:00 - 11:50",
-          location: "CR-12",
-          type: "lecture",
-          day: "Friday",
-        },
-        {
-          id: "19",
-          subject: "Electronic Circuit Design",
-          time: "14:30 - 15:15",
-          location: "Advanced Electronics Lab (AEC)",
-          type: "lab",
-          day: "Friday",
-        },
-        {
-          id: "20",
-          subject: "Electronic Circuit Design",
-          time: "15:20 - 16:05",
-          location: "Advanced Electronics Lab (AEC)",
-          type: "lab",
-          day: "Friday",
-        },
-        {
-          id: "21",
-          subject: "Electronic Circuit Design",
-          time: "16:10 - 16:55",
-          location: "Advanced Electronics Lab (AEC)",
-          type: "lab",
-          day: "Friday",
-        },
-      ],
-      B: [
-        // Monday
-        {
-          id: "b1",
-          subject: "Electrical Machines",
-          time: "09:00 - 09:50",
-          location: "CR-13 (UG Block)",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "b2",
-          subject: "Instrumentation and Measurements",
-          time: "10:00 - 12:50",
-          location: "Control System Lab (UG Block)",
-          type: "lab",
-          day: "Monday",
-        },
-        {
-          id: "b3",
-          subject: "Signals and Systems",
-          time: "14:00 - 15:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Monday",
-        },
-        // Tuesday
-        {
-          id: "b4",
-          subject: "Instrumentation and Measurements",
-          time: "09:00 - 09:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "b5",
-          subject: "Instrumentation and Measurements",
-          time: "10:00 - 10:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "b6",
-          subject: "Probability and Statistics",
-          time: "11:00 - 11:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "b7",
-          subject: "Electrical Machines",
-          time: "12:00 - 12:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "b8",
-          subject: "Signals and Systems",
-          time: "14:00 - 14:50",
-          location: "CR-10 (UG Block)",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        // Wednesday
-        {
-          id: "b9",
-          subject: "Makeup Slot/Library Period",
-          time: "09:00 - 09:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "b10",
-          subject: "Electrical Machines",
-          time: "10:00 - 12:50",
-          location: "EMS Lab (UG Block)",
-          type: "lab",
-          day: "Wednesday",
-        },
-        {
-          id: "b11",
-          subject: "Makeup Slot/Library Period",
-          time: "14:00 - 14:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "b12",
-          subject: "Electronic Circuit Design",
-          time: "15:00 - 16:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        // Thursday
-        {
-          id: "b13",
-          subject: "Instrumentation and Measurements",
-          time: "09:00 - 09:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "b14",
-          subject: "Probability and Statistics",
-          time: "10:00 - 10:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "b15",
-          subject: "Electrical Machines",
-          time: "11:00 - 11:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "b16",
-          subject: "Electronic Circuit Design",
-          time: "12:00 - 12:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "b17",
-          subject: "Signals and Systems",
-          time: "14:00 - 16:50",
-          location: "DSP & Comm Lab (UG Block)",
-          type: "lab",
-          day: "Thursday",
-        },
-        // Friday
-        {
-          id: "b18",
-          subject: "Electronic Circuit Design",
-          time: "09:00 - 11:50",
-          location: "Advanced Electronics Lab (IAEC)",
-          type: "lab",
-          day: "Friday",
-        },
-        {
-          id: "b19",
-          subject: "Probability and Statistics",
-          time: "12:00 - 12:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Friday",
-        },
-      ],
-      C: [
-        // Monday
-        {
-          id: "c1",
-          subject: "Probability and Statistics",
-          time: "09:00 - 09:50",
-          location: "CR-12 (UG Block)",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "c2",
-          subject: "Probability and Statistics",
-          time: "10:00 - 11:50",
-          location: "CR-12 (UG Block)",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "c3",
-          subject: "Makeup Slot",
-          time: "11:00 - 11:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Monday",
-        },
-
-        {
-          id: "c4",
-          subject: "Electrical Machines",
-          time: "12:00 - 12:50",
-          location: "CR 13",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "c5",
-          subject: "Signals and Systems",
-          time: "2:00 - 4:50",
-          location: "DSP & Comm Lab - UG Block",
-          type: "Lab",
-          day: "Monday",
-        },
-        //Tuesday
-        {
-          id: "c6",
-          subject: "ELectrical Machines",
-          time: "09:00 - 09:50",
-          location: "CR 01",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "c7",
-          subject: "Instrumentations and Measurements",
-          time: "10:00 - 12:50",
-          location: "CR 12",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "c8",
-          subject: "Signals and Systems",
-          time: "14:00 - 14:50",
-          location: "CR-13 (UG Block)",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "c9",
-          subject: "Signals and Systems",
-          time: "15:00 - 15:50",
-          location: "CR-13",
-          type: "lecture",
-          day: "Tuesday",
-        },
-
-        //Wednesday
-        {
-          id: "c10",
-          subject: "Signals and Systems",
-          time: "10:00 - 10:50",
-          location: "CR-13",
-          type: "Lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "c11",
-          subject: "Instrumentations and Measurements",
-          time: "11:00 - 11:50",
-          location: "CR-13",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "c12",
-          subject: "Probability and Statistics",
-          time: "12:00 - 12:50",
-          location: "CR-13",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "c13",
-          subject: "Electronic Circuit Design",
-          time: "14:00 - 16:50",
-          location: "Advanced Electronics Lab (IAEC)",
-          type: "lab",
-          day: "Wednesday",
-        },
-
-        //Thursday
-        {
-          id: "c14",
-          subject: "Electrical Machines",
-          time: "10:00 - 10:50",
-          location: "CR 13",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "c15",
-          subject: "Electronic Circuit Design",
-          time: "11:00 - 11:50",
-          location: "CR 13",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "c16",
-          subject: "Makeup Slot",
-          time: "12:00 - 12:50",
-          location: "CR 13",
-          type: "NA",
-          day: "Thursday",
-        },
-        {
-          id: "c17",
-          subject: "Electrical Machines",
-          time: "14:00 - 16:50",
-          location: "EMS Lab-UG Block",
-          type: "lab",
-          day: "Thursday",
-        },
-        // Friday
-        {
-          id: "c18",
-          subject: "Instrumentaions and Measurements",
-          time: "09:00 - 10:50",
-          location: "CR-13",
-          type: "lecture",
-          day: "Friday",
-        },
-        {
-          id: "c19",
-          subject: "Electronic Circuits Design",
-          time: "11:00 - 12:50",
-          location: "CR 13",
-          type: "lecture",
-          day: "Friday",
-        },
-      ],
-      D: [
-        // Monday
-        {
-          id: "d1",
-          subject: "Signals and Systems (Lab)",
-          time: "09:00 - 11:50",
-          location: "DSP & Comm Lab-UG Block",
-          type: "lab",
-          day: "Monday",
-        },
-        {
-          id: "d2",
-          subject: "Electrical Machines",
-          time: "12:00 - 12:50",
-          location: "CR-12-UG Block",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "d3",
-          subject: "Electronic Circuit Design",
-          time: "14:00 - 15:50",
-          location: "CR-13",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "d4",
-          subject: "Makeup Slot / Library Period",
-          time: "16:00 - 16:50",
-          location: "CR-13",
-          type: "NA",
-          day: "Monday",
-        },
-
-        // Tuesday
-        {
-          id: "d5",
-          subject: "Probability and Statistics",
-          time: "09:00 - 11:50",
-          location: "CR-13",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "d6",
-          subject: "Electronic Circuit Design",
-          time: "12:00 - 12:50",
-          location: "CR-13",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "d7",
-          subject: "Instrumentation and Measurements (Lab)",
-          time: "14:00 - 16:50",
-          location: "Control System Lab-UG Block",
-          type: "lab",
-          day: "Tuesday",
-        },
-
-        // Wednesday
-        {
-          id: "d8",
-          subject: "Probability and Statistics",
-          time: "09:00 - 09:50",
-          location: "CR-13",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "d9",
-          subject: "Electronic Circuit Design (Lab)",
-          time: "10:00 - 12:50",
-          location: "Advanced Electronics Lab-IAEC",
-          type: "lab",
-          day: "Wednesday",
-        },
-        {
-          id: "d10",
-          subject: "Instrumentation and Measurements",
-          time: "14:00 - 15:50",
-          location: "CR-08-UG Block",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "d11",
-          subject: "Makeup Slot / Library Period",
-          time: "16:00 - 16:50",
-          location: "CR-13",
-          type: "NA",
-          day: "Wednesday",
-        },
-
-        // Thursday
-        {
-          id: "d12",
-          subject: "Electrical Machines (Lab)",
-          time: "10:00 - 12:50",
-          location: "EMS Lab-UG Block",
-          type: "lab",
-          day: "Thursday",
-        },
-        {
-          id: "d13",
-          subject: "Electrical Machines",
-          time: "14:00 - 15:50",
-          location: "CR-13",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "d14",
-          subject: "Makeup Slot / Library Period",
-          time: "16:00 - 16:50",
-          location: "CR-13",
-          type: "NA",
-          day: "Thursday",
-        },
-
-        // Friday
-        {
-          id: "d15",
-          subject: "Makeup Slot / Library Period",
-          time: "09:00 - 12:50",
-          location: "CR-13",
-          type: "NA",
-          day: "Friday",
-        },
-        {
-          id: "d16",
-          subject: "Signals and Systems",
-          time: "14:00 - 15:50",
-          location: "CR-13",
-          type: "lecture",
-          day: "Friday",
-        },
-        {
-          id: "d17",
-          subject: "Makeup Slot / Library Period",
-          time: "16:00 - 16:50",
-          location: "CR-13",
-          type: "NA",
-          day: "Friday",
-        },
-      ],
-    },
-    "Computer Science": {
-      A: [],
-      B: [
-        // Monday
-        {
-          id: "cs-b1",
-          subject: "Makeup Slot / Library Period",
-          time: "09:00 - 09:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "cs-b2",
-          subject: "Data Visualization",
-          time: "10:00 - 12:50",
-          location: "Computing Lab-05 UG Block",
-          type: "lab",
-          day: "Monday",
-        },
-        {
-          id: "cs-b3",
-          subject: "Introduction to Management",
-          time: "14:00 - 15:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Monday",
-        },
-        {
-          id: "cs-b4",
-          subject: "Makeup Slot / Library Period",
-          time: "16:00 - 16:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Monday",
-        },
-        // Tuesday
-        {
-          id: "cs-b5",
-          subject: "Operating Systems",
-          time: "09:00 - 10:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "cs-b6",
-          subject: "Data Visualization",
-          time: "11:00 - 12:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Tuesday",
-        },
-        {
-          id: "cs-b7",
-          subject: "HCI & Computer Graphics",
-          time: "14:00 - 16:50",
-          location: "Computing Lab-05 UG Block",
-          type: "lab",
-          day: "Tuesday",
-        },
-        // Wednesday
-        {
-          id: "cs-b8",
-          subject: "Makeup Slot / Library Period",
-          time: "09:00 - 09:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "cs-b9",
-          subject: "Computer Architecture",
-          time: "11:00 - 12:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Wednesday",
-        },
-        {
-          id: "cs-b10",
-          subject: "Operating Systems",
-          time: "14:00 - 16:50",
-          location: "Computing Lab-05 UG Block",
-          type: "lab",
-          day: "Wednesday",
-        },
-        // Thursday
-        {
-          id: "cs-b11",
-          subject: "Makeup Slot / Library Period",
-          time: "09:00 - 09:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "cs-b12",
-          subject: "Machine Learning",
-          time: "10:00 - 12:50",
-          location: "Computing Lab-05 UG Block",
-          type: "lab",
-          day: "Thursday",
-        },
-        {
-          id: "cs-b13",
-          subject: "Machine Learning",
-          time: "14:00 - 15:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Thursday",
-        },
-        {
-          id: "cs-b14",
-          subject: "Makeup Slot / Library Period",
-          time: "16:00 - 16:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Thursday",
-        },
-        // Friday
-        {
-          id: "cs-b15",
-          subject: "Makeup Slot / Library Period",
-          time: "09:00 - 09:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Friday",
-        },
-        {
-          id: "cs-b16",
-          subject: "Computer Architecture",
-          time: "10:00 - 12:50",
-          location: "Computing Lab-05 UG Block",
-          type: "lab",
-          day: "Friday",
-        },
-        {
-          id: "cs-b17",
-          subject: "HCI & Computer Graphics",
-          time: "14:00 - 15:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Friday",
-        },
-        {
-          id: "cs-b18",
-          subject: "Makeup Slot / Library Period",
-          time: "16:00 - 16:50",
-          location: "TBD",
-          type: "lecture",
-          day: "Friday",
-        },
-      ],
-      C: [],
-      D: [],
-      E: [],
-    },
-  }
-
-  const scheduleDataNoSection: Record<string, ScheduleItem[]> = {
-    "Mass Communication": [
-      // Monday
-      {
-        id: "mc-1",
-        subject: "Theories of Mass Communication",
-        time: "14:00 - 15:15",
-        location: "CR-06",
-        type: "lecture",
-        day: "Monday",
-      },
-      {
-        id: "mc-2",
-        subject: "Theories of Mass Communication",
-        time: "15:25 - 16:40",
-        location: "CR-06",
-        type: "lecture",
-        day: "Monday",
-      },
-      // Tuesday
-      {
-        id: "mc-3",
-        subject: "Radio Production",
-        time: "10:25 - 11:40",
-        location: "CR-01",
-        type: "lecture",
-        day: "Tuesday",
-      },
-      {
-        id: "mc-4",
-        subject: "Radio Production",
-        time: "11:50 - 13:05",
-        location: "CR-10",
-        type: "lecture",
-        day: "Tuesday",
-      },
-      {
-        id: "mc-5",
-        subject: "Introduction to Public Administration",
-        time: "14:00 - 15:15",
-        location: "CR-04",
-        type: "lecture",
-        day: "Tuesday",
-      },
-      {
-        id: "mc-6",
-        subject: "Introduction to Public Administration",
-        time: "15:25 - 16:40",
-        location: "CR-04",
-        type: "lecture",
-        day: "Tuesday",
-      },
-      // Wednesday
-      {
-        id: "mc-7",
-        subject: "Introduction to Visual Storytelling",
-        time: "10:25 - 11:40",
-        location: "TV Studio - Lab",
-        type: "lab",
-        day: "Wednesday",
-      },
-      {
-        id: "mc-8",
-        subject: "Introduction to Visual Storytelling",
-        time: "11:50 - 13:05",
-        location: "TV Studio - Lab",
-        type: "lab",
-        day: "Wednesday",
-      },
-      // Thursday
-      {
-        id: "mc-9",
-        subject: "English Literature",
-        time: "14:00 - 15:15",
-        location: "CR-09",
-        type: "lecture",
-        day: "Thursday",
-      },
-      {
-        id: "mc-10",
-        subject: "English Literature",
-        time: "15:25 - 16:40",
-        location: "CR-09",
-        type: "lecture",
-        day: "Thursday",
-      },
-      // Friday
-      {
-        id: "mc-11",
-        subject: "Online Journalism",
-        time: "10:25 - 11:40",
-        location: "CR-10",
-        type: "lecture",
-        day: "Friday",
-      },
-      {
-        id: "mc-12",
-        subject: "Online Journalism",
-        time: "11:50 - 13:05",
-        location: "CR-10",
-        type: "lecture",
-        day: "Friday",
-      },
-    ],
-  }
-
-  const messMenu: Record<string, MessMenuItem[]> = {
-    Monday: [
-      { id: "mon-b", meal: "breakfast", items: ["Kulcha", "Channa", "Tea"], time: "07:30 - 09:30" },
-      { id: "mon-l", meal: "lunch", items: ["Aloo Palik", "Pickle", "Chapati"], time: "12:45 - 15:30" }, // Updated lunch time to 12:45 - 15:30
-      { id: "mon-d", meal: "dinner", items: ["Mutter Pulao / Channa Pulao", "Raita"], time: "19:30 - 21:30" }, // Updated dinner time to 19:30 - 21:30
-    ],
-    Tuesday: [
-      { id: "tue-b", meal: "breakfast", items: ["Omelette", "Paratha", "Tea"], time: "07:30 - 09:30" },
-      { id: "tue-l", meal: "lunch", items: ["Daal Mash", "Salad", "Chapati"], time: "12:45 - 15:30" }, // Updated lunch time
-      { id: "tue-d", meal: "dinner", items: ["Chicken Acharhi", "Chapati", "Zarda / Kheer"], time: "19:30 - 21:30" }, // Updated dinner time
-    ],
-    Wednesday: [
-      { id: "wed-b", meal: "breakfast", items: ["Half & Full Fried Egg", "Paratha", "Tea"], time: "07:30 - 09:30" },
-      { id: "wed-l", meal: "lunch", items: ["White Rice / Naan", "Pakora Kari", "Pickle"], time: "12:45 - 15:30" }, // Updated lunch time
-      {
-        id: "wed-d",
-        meal: "dinner",
-        items: ["Murgh Chanay / Chicken Daleen", "Chapati / Naan"],
-        time: "19:30 - 21:30", // Updated dinner time
-      },
-    ],
-    Thursday: [
-      {
-        id: "thu-b",
-        meal: "breakfast",
-        items: ["Scrambled Egg / Egg with Onion & Tomato", "Paratha", "Tea"],
-        time: "07:30 - 09:30",
-      },
-      { id: "thu-l", meal: "lunch", items: ["Daal Kadu", "Pickle", "Chapati"], time: "12:45 - 15:30" }, // Updated lunch time
-      { id: "thu-d", meal: "dinner", items: ["Chicken Biryani", "Raita", "Cold Drinks"], time: "19:30 - 21:30" }, // Updated dinner time
-    ],
-    Friday: [
-      { id: "fri-b", meal: "breakfast", items: ["Bread", "Butter & Jam / French Toast", "Tea"], time: "07:30 - 09:30" },
-      { id: "fri-l", meal: "lunch", items: ["White Rice", "Daal Mong / Daal Masoor", "Pickle"], time: "12:45 - 15:30" }, // Updated lunch time
-      { id: "fri-d", meal: "dinner", items: ["Aloo Bhujia / Beef Chapli Kabab", "Chapati"], time: "19:30 - 21:30" }, // Updated dinner time
-    ],
-    Saturday: [
-      { id: "sat-b", meal: "breakfast", items: ["Aloo Paratha", "Yogurt", "Tea"], time: "09:00 - 10:30" }, // Updated breakfast to weekend timing 09:00 - 10:30
-      { id: "sat-l", meal: "lunch", items: ["Black Channa", "Pickle", "Chapati"], time: "14:00 - 15:30" }, // Updated lunch to weekend timing 14:00 - 15:30
-      { id: "sat-d", meal: "dinner", items: ["Chicken Pulao", "Raita"], time: "19:30 - 21:30" }, // Updated dinner time
-    ],
-    Sunday: [
-      { id: "sun-b", meal: "breakfast", items: ["Halwa Puri", "Channa", "Tea"], time: "09:00 - 10:30" }, // Updated breakfast to weekend timing 09:00 - 10:30
-      { id: "sun-l", meal: "lunch", items: ["Seasonal Vegetable", "Chapati"], time: "14:00 - 15:30" }, // Updated lunch to weekend timing 14:00 - 15:30
-      {
-        id: "sun-d",
-        meal: "dinner",
-        items: ["Chicken Chowmein / Aloo Cutlets", "Daal Mix", "Chatni", "Chapati"],
-        time: "19:30 - 21:30", // Updated dinner time
-      },
-    ],
-  }
-
-  // FIX: Define getTodaysClasses function
-  const getTodaysClasses = (): ScheduleItem[] => {
-    const today = new Date()
-    const currentDayOfWeek = today.toLocaleDateString("en-US", { weekday: "long" })
-    return getScheduleForDay(currentDayOfWeek)
-  }
-
-  const todaysClasses = getTodaysClasses()
-
   return (
-    <div className={`min-h-screen ${darkMode ? "dark" : ""}`}>
+    <div className={`min-h-screen ${darkMode ? 'dark' : ''}`}>
       <div className="min-h-screen bg-background">
         {/* Header */}
-        <header className="bg-card border-b border-border p-4">
-          <div className="flex items-center justify-between">
+        <header className="bg-card/95 backdrop-blur border-b p-4 sticky top-0 z-30">
+          <div className="max-w-4xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
-                <GraduationCap className="w-5 h-5 text-primary-foreground" />
+              <div className="w-10 h-10 bg-gradient-to-r from-primary to-secondary rounded-xl flex items-center justify-center shadow-lg">
+                <GraduationCap className="w-5 h-5 text-background drop-shadow-sm" />
               </div>
               <div>
-                <h1 className="font-heading font-bold text-lg">UniApp</h1>
-                <p className="text-sm text-muted-foreground">
-                  {userProfile.major} • Semester {userProfile.semester}
-                </p>
+
+                <h1 className="font-bold text-xl">UniApp</h1>
+                <div className="flex items-center gap-1 mt-1">
+                  <Select value={userProfile.major} onValueChange={(major) => setUserProfile(prev => ({ ...prev, major }))}>
+                    <SelectTrigger className="h-8 w-32 text-xs border-0 bg-transparent hover:bg-transparent p-0">
+                      <SelectValue placeholder="Select major" />
+                    </SelectTrigger>
+                    <SelectContent align="end" className="w-48">
+                      {availableMajors.map((major) => (
+                        <SelectItem key={major} value={major}>{major}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-sm text-muted-foreground">• {userProfile.semester} Sem</span>
+                </div>
+
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {userProfile.hostelResident && (
-                <Badge variant="secondary" className="gap-1">
+                <Badge variant="outline" className="gap-1 px-2 py-0.5 text-xs">
                   <MapPin className="w-3 h-3" />
                   Hostel
                 </Badge>
               )}
-              <Button variant="outline" size="sm" onClick={() => setShowSidebar(!showSidebar)} title="More options">
+
+                      {availableMajors.length > 0 && (
+                        <Badge variant="secondary" className="text-xs">
+                          📊 {availableMajors.length} unique majors from XLSX
+                        </Badge>
+                      )}
+
+              <Button variant="ghost" size="sm" onClick={() => setShowSidebar(true)} className="h-9 w-9 p-0">
                 <MoreVertical className="w-4 h-4" />
               </Button>
             </div>
           </div>
         </header>
 
-        {showSidebar && <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowSidebar(false)} />}
-        <div
-          className={`fixed top-0 right-0 h-screen w-64 bg-card border-l border-border shadow-lg transform transition-transform duration-300 z-50 ${showSidebar ? "translate-x-0" : "translate-x-full"}`}
-        >
-          <div className="p-4 border-b border-border flex items-center justify-between">
-            <h2 className="font-bold text-lg">More Options</h2>
-            <Button variant="ghost" size="sm" onClick={() => setShowSidebar(false)}>
-              <X className="w-5 h-5" />
-            </Button>
-          </div>
-          <div className="p-4 space-y-3">
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-2 bg-transparent"
-              onClick={() => {
-                toggleDarkMode()
-                setShowSidebar(false)
-              }}
-            >
-              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              {darkMode ? "Light Mode" : "Dark Mode"}
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-2 bg-transparent"
-              onClick={() => {
-                handleReset()
-                setShowSidebar(false)
-              }}
-            >
-              Reset Profile
-            </Button>
-          </div>
-        </div>
+        {/* Mobile Sidebar */}
+{showSidebar && (
+  <>
+    <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowSidebar(false)} />
+    <div className="fixed top-0 right-0 h-full w-80 bg-card border-l shadow-2xl z-50 transform transition-all translate-x-0">
+      <div className="p-6 border-b flex items-center justify-between">
+        <h2 className="font-bold text-lg">Options</h2>
+        <Button variant="ghost" size="sm" onClick={() => setShowSidebar(false)}>
+          <X className="w-5 h-5" />
+        </Button>
+      </div>
+      <div className="p-6 space-y-3">
+        <Button variant={darkMode ? "default" : "outline"} className="w-full justify-start gap-2" onClick={toggleDarkMode}>
+          {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          {darkMode ? "Light" : "Dark"} Mode
+        </Button>
+        <Button variant="destructive" className="w-full" onClick={() => {
+          localStorage.clear()
+          location.reload()
+        }}>
+          Reset Everything
+        </Button>
+      </div>
+    </div>
+  </>
+)}
 
-        {/* Main Content */}
-        <main className="max-w-4xl mx-auto p-4 pb-8">
+        <main className="max-w-4xl mx-auto p-6 pb-20">
+          {/* Today's Classes */}
           {todaysClasses.length > 0 && (
-            <Card className="mb-6 bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Calendar className="w-5 h-5 text-primary" />
-                  Today's Classes
-                </CardTitle>
+            <Card className="mb-8 bg-gradient-to-br from-primary/5 to-primary/20 border-primary/30 shadow-xl">
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-primary/20 rounded-2xl flex items-center justify-center p-3 border">
+                    <Calendar className="w-6 h-6 text-primary" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-2xl font-bold">Today's Classes</CardTitle>
+                    <p className="text-muted-foreground">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  {todaysClasses.slice(0, 3).map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-2 bg-background/60 rounded gap-2"
-                    >
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-semibold text-sm truncate">{item.subject}</p>
-                          <p className="text-xs text-muted-foreground">{item.time}</p>
+                <div className="space-y-3">
+                  {todaysClasses.slice(0, 4).map((cls) => (
+                    <div key={cls.id} className="group flex items-start p-4 rounded-2xl bg-background/50 border hover:border-primary/50 transition-all hover:shadow-md">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between mb-1">
+                          <h3 className="font-bold text-lg line-clamp-1">{cls.subject}</h3>
+                          <Badge className={getTypeColor(cls.type)}>{cls.type}</Badge>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge className="bg-primary/20 text-primary border-primary/30 text-xs whitespace-nowrap">
-                          {getCountdownText(item.time, item.day)}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs whitespace-nowrap">
-                          {item.type}
+                        <div className="flex items-center gap-6 text-sm text-muted-foreground mb-2">
+                          <div className="flex items-center gap-1.5">
+                            <Clock className="w-4 h-4" />
+                            {cls.time}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <MapPin className="w-4 h-4" />
+                            {cls.location}
+                          </div>
+                        </div>
+                        <Badge variant="secondary" className="text-sm font-medium">
+                          {getCountdownText(cls.time, cls.day)}
                         </Badge>
                       </div>
                     </div>
                   ))}
-                  {todaysClasses.length > 3 && (
-                    <p className="text-xs text-muted-foreground text-center pt-2">
-                      +{todaysClasses.length - 3} more classes today
-                    </p>
+                  {todaysClasses.length > 4 && (
+                    <div className="text-center pt-4 border-t text-sm text-muted-foreground">
+                      +{todaysClasses.length - 4} more today
+                    </div>
                   )}
                 </div>
               </CardContent>
             </Card>
           )}
 
-          <Tabs defaultValue="schedule" className="w-full">
-            {/* CHANGE: changed grid-cols-3 to grid-cols-2 for two tabs */}
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="schedule" className="gap-2">
-                <Calendar className="w-4 h-4" />
-                Schedule
-              </TabsTrigger>
-              <TabsTrigger value="mess" className="gap-2">
-                <Utensils className="w-4 h-4" />
-                Mess Menu
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="schedule" className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-heading font-semibold">Class Schedule</h2>
-                <Select value={selectedDay} onValueChange={setSelectedDay}>
-                  <SelectTrigger className="w-32">
-                    <SelectValue placeholder="Select day" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DAYS.map((day) => (
-                      <SelectItem key={day} value={day}>
-                        {day}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          {!isLoadingSchedule && (
+            <div className="space-y-4 mb-8">
+              <div>
+                <h2 className="text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent mb-2">
+                  Class Schedule
+                </h2>
+                <p className="text-sm text-muted-foreground mb-4">Viewing: {selectedDateLabel}</p>
+                <div className="flex gap-3 items-center flex-wrap">
+                  <Button variant="outline" className="gap-2" onClick={() => setSelectedDate(formatDateForInput(new Date()))}>
+                    Today
+                  </Button>
+                  <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value || formatDateForInput(new Date()))} className="w-44" />
+                </div>
               </div>
+            </div>
+          )}
 
-              <div className="space-y-3">
-                {getScheduleForDay(selectedDay).length > 0 ? (
-                  getScheduleForDay(selectedDay).map((item) => {
-                    const noteText = getNoteForClass(item.id)
-                    const isEditing = editingNoteId === item.id
-
-                    return (
-                      <Card key={item.id} className="p-4">
-                        <div className="flex items-start justify-between mb-3">
+          {isLoadingSchedule ? (
+            <Card className="text-center p-12">
+              <div className="animate-spin w-8 h-8 border-2 border-primary/20 border-t-primary mx-auto mb-3" />
+              <p>Loading schedule from output6.xlsx...</p>
+            </Card>
+          ) : selectedDaySchedule.length === 0 ? (
+            <Card className="text-center p-12 border-dashed">
+              <Calendar className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-50" />
+              <h3 className="text-xl font-semibold mb-1">No classes for {selectedDateLabel}</h3>
+              <p className="text-muted-foreground mb-4">Try another date</p>
+              {isSectionBasedMajor(userProfile.major) && !userProfile.section && (
+                <p className="text-sm text-muted-foreground mb-2">Select your section to view section-specific classes.</p>
+              )}
+              {Object.keys(scheduleByMajorSection).length === 0 && Object.keys(scheduleByMajorNoSection).length === 0 && (
+                <p className="text-destructive text-sm">
+                  No schedule data found in output6.xlsx for {userProfile.major}
+                </p>
+              )}
+            </Card>
+          ) : (
+            <>
+              <div className="space-y-4">
+                {selectedDaySchedule.map((cls) => {
+                  const noteText = getNoteForClass(cls.id)
+                  const isEditing = editingNoteId === cls.id
+                  return (
+                    <Card key={cls.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+                      <div className="p-6 pb-2">
+                        <div className="flex items-start justify-between gap-4">
                           <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <h3 className="font-semibold text-balance">{item.subject}</h3>
-                              <Badge className={getTypeColor(item.type)} variant="secondary">
-                                {item.type}
-                              </Badge>
+                            <div className="flex items-center gap-3 mb-3">
+                              <h3 className="text-xl font-bold">{cls.subject}</h3>
+                              <Badge className={`${getTypeColor(cls.type)} px-3 py-1`}>{cls.type.toUpperCase()}</Badge>
                             </div>
-                            <div className="space-y-1 text-sm text-muted-foreground">
+                            <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
                               <div className="flex items-center gap-2">
                                 <Clock className="w-4 h-4" />
-                                {item.time}
+                                <span className="font-medium">{cls.time}</span>
                               </div>
                               <div className="flex items-center gap-2">
                                 <MapPin className="w-4 h-4" />
-                                {item.location}
+                                <span className="font-medium truncate">{cls.location}</span>
                               </div>
                             </div>
                           </div>
-                          {/* CHANGE: Add countdown text */}
-                          <div className="text-xs font-medium text-primary ml-4 flex-shrink-0">
-                            {/* Added day parameter to getCountdownText */}
-                            {getCountdownText(item.time, item.day)}
+                          <div className="flex flex-col items-end gap-2 text-sm font-medium text-primary shrink-0">
+                            <span>{getCountdownText(cls.time, cls.day)}</span>
                           </div>
                         </div>
-
-                        <div className="mt-4 pt-4 border-t border-border">
-                          {isEditing ? (
-                            <div className="space-y-2">
-                              <Input
-                                id={`note-${item.id}`} // Added id for easier access
-                                placeholder="Add your class notes..."
-                                defaultValue={noteText}
-                                // Removed onchange and used onBlur to save notes
-                                onBlur={(e) => saveNote(item.id, e.currentTarget.value)}
-                                autoFocus
-                                className="text-sm"
-                              />
-                              <div className="flex gap-2 text-xs">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  // Added explicit call to saveNote on button click
-                                  onClick={() =>
-                                    saveNote(
-                                      item.id,
-                                      (document.querySelector(`#note-${item.id}`) as HTMLInputElement)?.value || "",
-                                    )
-                                  }
-                                >
-                                  Save
-                                </Button>
-                                <Button size="sm" variant="ghost" onClick={() => setEditingNoteId(null)}>
-                                  Cancel
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div
-                              className="cursor-pointer p-2 rounded hover:bg-accent/10 transition-colors"
-                              onClick={() => setEditingNoteId(item.id)}
-                            >
-                              {noteText ? (
-                                <div className="flex gap-2 text-sm">
-                                  <Notebook className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                                  <p className="text-muted-foreground">{noteText}</p>
-                                </div>
-                              ) : (
-                                <div className="flex gap-2 text-sm text-muted-foreground/60">
-                                  <Notebook className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                                  <p>Click to add notes...</p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </Card>
-                    )
-                  })
-                ) : (
-                  <Card className="p-8 text-center">
-                    <p className="text-muted-foreground">No classes scheduled for {selectedDay}</p>
-                  </Card>
-                )}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="mess" className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-heading font-semibold">Mess Menu</h2>
-                <Select value={selectedMessDay} onValueChange={setSelectedMessDay}>
-                  <SelectTrigger className="w-32">
-                    <SelectValue placeholder="Select day" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DAYS.map((day) => (
-                      <SelectItem key={day} value={day}>
-                        {day}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-4">
-                {messMenu[selectedMessDay]?.map((meal) => (
-                  <Card key={meal.id}>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="flex items-center gap-2 text-lg capitalize">
-                        <span className="text-xl">{getMealIcon(meal.meal)}</span>
-                        {meal.meal}
-                        <Badge variant="outline" className="ml-auto">
-                          {meal.time}
-                        </Badge>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-2">
-                        {meal.items.map((item, index) => (
-                          <Badge key={index} variant="secondary" className="text-xs">
-                            {item}
-                          </Badge>
-                        ))}
                       </div>
-                    </CardContent>
-                  </Card>
-                )) || (
-                  <Card className="p-8 text-center">
-                    <p className="text-muted-foreground">No menu available for {selectedMessDay}</p>
-                  </Card>
-                )}
+                      <div className="px-6 pb-6 pt-0">
+                        {isEditing ? (
+                          <div className="space-y-3 bg-muted/30 p-4 rounded-xl">
+                            <Input
+                              ref={noteInputRef}
+                              autoFocus
+                              defaultValue={noteText}
+                              placeholder="Add class notes, homework, important points..."
+                              onBlur={e => saveNote(cls.id, e.target.value)}
+                              onKeyDown={e => { 
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault()
+                                  saveNote(cls.id, (e.target as HTMLInputElement).value)
+                                }
+                              }}
+                              className="min-h-[80px] resize-none"
+                            />
+                            <div className="flex gap-2 justify-end">
+                              <Button variant="outline" size="sm" onClick={() => setEditingNoteId(null)}>
+                                Cancel
+                              </Button>
+                              <Button size="sm" onClick={() => saveNote(cls.id, noteInputRef.current?.value || noteText)}>
+                                Save Note
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button className="group w-full flex items-start gap-3 p-4 rounded-xl bg-muted/50 hover:bg-accent transition-all hover:shadow-md" onClick={() => setEditingNoteId(cls.id)}>
+                            {noteText ? (
+                              <>
+                                <Notebook className="w-5 h-5 mt-0.5 text-muted-foreground flex-shrink-0 group-hover:text-foreground transition-colors" />
+                                <span className="text-sm text-muted-foreground line-clamp-2">{noteText}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Notebook className="w-5 h-5 mt-0.5 text-muted-foreground/50 flex-shrink-0 group-hover:text-muted-foreground" />
+                                <span className="text-sm text-muted-foreground/60">Click to add notes for {cls.subject}...</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </Card>
+                  )
+                })}
               </div>
-            </TabsContent>
-
-            {/* Removed Exams TabsContent */}
-          </Tabs>
+            </>
+          )}
         </main>
       </div>
     </div>
